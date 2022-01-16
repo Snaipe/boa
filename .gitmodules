@@ -1,0 +1,3 @@
+[submodule "encoding/json5/testdata"]
+	path = encoding/json5/testdata
+	url = https://github.com/json5/json5-tests
