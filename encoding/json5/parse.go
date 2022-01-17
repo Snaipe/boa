@@ -67,6 +67,7 @@ func (p *parser) Parse() (*Node, error) {
 	if err := p.Value(token, &rootval); err != nil {
 		return nil, err
 	}
+	rootval.Position = token.Start
 	token = p.Next(&rootval.Suffix)
 	if token.Type != TokenEOF {
 		return nil, p.Error(token, UnexpectedTokenError{TokenEOF})
@@ -145,6 +146,7 @@ func (p *parser) Object(token Token, node *Node) error {
 		}
 		key.Type = NodeString
 		key.Tokens = append(key.Tokens, token)
+		key.Position = token.Start
 		*prev = key
 		prev = &key.Sibling
 
@@ -157,9 +159,11 @@ func (p *parser) Object(token Token, node *Node) error {
 		value := &Node{}
 		key.Child = value
 
-		if err := p.Value(p.Next(&value.Tokens), value); err != nil {
+		token = p.Next(&value.Tokens)
+		if err := p.Value(token, value); err != nil {
 			return err
 		}
+		value.Position = token.Start
 
 		token = p.Next(&value.Suffix)
 		if token.Type == TokenComma {
@@ -186,6 +190,7 @@ func (p *parser) List(token Token, node *Node) error {
 		if err := p.Value(token, entry); err != nil {
 			return err
 		}
+		entry.Position = token.Start
 		*prev = entry
 		prev = &entry.Sibling
 

@@ -49,7 +49,7 @@ func (decoder *Decoder) Decode(v interface{}) error {
 		panic("json5.Decoder.Decode: must pass in pointer value")
 	}
 
-	return reflectutil.Populate(ptr.Elem(), root.Child, encoding.CamelCase, func(val reflect.Value, node *Node) (bool, error) {
+	err = reflectutil.Populate(ptr.Elem(), root.Child, encoding.CamelCase, func(val reflect.Value, node *Node) (bool, error) {
 		switch unmarshaler := val.Interface().(type) {
 		case json.Unmarshaler:
 			data, err := MarshalJSON(node)
@@ -64,6 +64,10 @@ func (decoder *Decoder) Decode(v interface{}) error {
 		}
 		return true, nil
 	})
+	if e, ok := err.(*encoding.LoadError); ok {
+		e.Filename = decoder.parser.name
+	}
+	return err
 }
 
 // Load is a convenience function to load a JSON5 document into the value

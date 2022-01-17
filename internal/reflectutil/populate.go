@@ -19,23 +19,38 @@ import (
 type PopulateFunc func(val reflect.Value, node *syntax.Node) (bool, error)
 
 func Populate(val reflect.Value, node *syntax.Node, convention encoding.NamingConvention, fn PopulateFunc) error {
-	_, err := populate(val, node, convention, fn)
+	_, err := populate(val, node, convention, nil, fn)
 	return err
 }
 
-func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingConvention, fn PopulateFunc) (reflect.Value, error) {
+func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingConvention, path []string, fn PopulateFunc) (reflect.Value, error) {
 	typ := val.Type()
 
+	target := func() string {
+		if len(path) == 0 {
+			return val.Type().String()
+		}
+		return strings.Join(path, "")
+	}
+
+	newErr := func(err error) error {
+		return &encoding.LoadError{Cursor: node.Position, Target: target(), Err: err}
+	}
+
+	newNodeErr := func(exp syntax.NodeType) error {
+		return newErr(fmt.Errorf("config has %v, but expected %v instead", node.Type, exp))
+	}
+
 	if ok, err := fn(val, node); err != nil || ok {
-		return val, err
+		return val, newErr(err)
 	}
 
 	if unmarshaler, ok := val.Interface().(stdenc.TextUnmarshaler); ok {
 		if node.Type != syntax.NodeString {
-			return val, syntax.UnexpectedNodeError{syntax.NodeString}
+			return val, newNodeErr(syntax.NodeString)
 		}
 		if err := unmarshaler.UnmarshalText([]byte(node.Value.(string))); err != nil {
-			return val, err
+			return val, newErr(err)
 		}
 		return val, nil
 	}
@@ -46,39 +61,39 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 		if val.IsNil() {
 			val.Set(reflect.New(val.Type()))
 		}
-		if _, err := populate(val.Elem(), node, convention, fn); err != nil {
+		if _, err := populate(val.Elem(), node, convention, path, fn); err != nil {
 			return val, err
 		}
 
 	case reflect.Bool:
 		if node.Type != syntax.NodeBool {
-			return val, syntax.UnexpectedNodeError{syntax.NodeBool}
+			return val, newNodeErr(syntax.NodeBool)
 		}
 		val.SetBool(node.Value.(bool))
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		if node.Type != syntax.NodeNumber {
-			return val, syntax.UnexpectedNodeError{syntax.NodeNumber}
+			return val, newNodeErr(syntax.NodeNumber)
 		}
 		i, exact := constant.Int64Val(node.Value.(constant.Value))
 		if !exact {
-			return val, fmt.Errorf("cannot assign %v to %v: value does not fit", node.Value, typ)
+			return val, newErr(fmt.Errorf("cannot assign %v to %v: value does not fit", node.Value, typ))
 		}
 		val.SetInt(i)
 
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		if node.Type != syntax.NodeNumber {
-			return val, syntax.UnexpectedNodeError{syntax.NodeNumber}
+			return val, newNodeErr(syntax.NodeNumber)
 		}
 		i, exact := constant.Uint64Val(node.Value.(constant.Value))
 		if !exact {
-			return val, fmt.Errorf("cannot assign %v to %v: value does not fit", node.Value, typ)
+			return val, newErr(fmt.Errorf("cannot assign %v to %v: value does not fit", node.Value, typ))
 		}
 		val.SetUint(i)
 
 	case reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128:
 		if node.Type != syntax.NodeNumber {
-			return val, syntax.UnexpectedNodeError{syntax.NodeNumber}
+			return val, newNodeErr(syntax.NodeNumber)
 		}
 		f, _ := constant.Float64Val(node.Value.(constant.Value))
 		if kind == reflect.Complex64 || kind == reflect.Complex128 {
@@ -89,13 +104,13 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 
 	case reflect.String:
 		if node.Type != syntax.NodeString {
-			return val, syntax.UnexpectedNodeError{syntax.NodeString}
+			return val, newNodeErr(syntax.NodeString)
 		}
 		val.SetString(node.Value.(string))
 
 	case reflect.Array, reflect.Slice:
 		if node.Type != syntax.NodeList {
-			return val, syntax.UnexpectedNodeError{syntax.NodeList}
+			return val, newNodeErr(syntax.NodeList)
 		}
 		if kind == reflect.Slice {
 			var l int
@@ -109,9 +124,9 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 		var idx int
 		for n := node.Child; n != nil; n = n.Sibling {
 			if idx >= val.Len() && kind == reflect.Array {
-				return val, fmt.Errorf("cannot assign %v to index %d: index out of bounds", node.Value, idx)
+				return val, newErr(fmt.Errorf("cannot assign %v to index %d: index out of bounds", node.Value, idx))
 			}
-			if _, err := populate(val.Index(idx), n, convention, fn); err != nil {
+			if _, err := populate(val.Index(idx), n, convention, append(path, fmt.Sprintf("[%d]", idx)), fn); err != nil {
 				return val, err
 			}
 			idx++
@@ -119,7 +134,7 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 
 	case reflect.Map:
 		if node.Type != syntax.NodeMap {
-			return val, syntax.UnexpectedNodeError{syntax.NodeMap}
+			return val, newNodeErr(syntax.NodeMap)
 		}
 		if val.IsNil() {
 			val.Set(reflect.MakeMap(val.Type()))
@@ -127,12 +142,12 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 		for key := node.Child; key != nil; key = key.Sibling {
 			value := key.Child
 
-			rkey, err := populate(reflect.New(typ.Key()).Elem(), key, convention, fn)
+			rkey, err := populate(reflect.New(typ.Key()).Elem(), key, convention, path, fn)
 			if err != nil {
 				return val, err
 			}
 
-			rval, err := populate(reflect.New(typ.Elem()).Elem(), value, convention, fn)
+			rval, err := populate(reflect.New(typ.Elem()).Elem(), value, convention, append(path, fmt.Sprintf("[%v]", rkey.Interface())), fn)
 			if err != nil {
 				return val, err
 			}
@@ -143,7 +158,7 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 	case reflect.Struct:
 
 		if node.Type != syntax.NodeMap {
-			return val, syntax.UnexpectedNodeError{syntax.NodeMap}
+			return val, newNodeErr(syntax.NodeMap)
 		}
 		fields := make(map[string]int, typ.NumField()*2)
 		for i := 0; i < typ.NumField(); i++ {
@@ -173,9 +188,15 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 
 			fieldidx, ok := fields[fieldname]
 			if !ok {
+				fieldidx, ok = fields[convention.Format(fieldname)]
+			}
+			if !ok {
+				fieldidx, ok = fields[strings.ToLower(fieldname)]
+			}
+			if !ok {
 				continue
 			}
-			_, err := populate(val.Field(fieldidx), value, convention, fn)
+			_, err := populate(val.Field(fieldidx), value, convention, append(path, fmt.Sprintf(".%v", typ.Field(fieldidx).Name)), fn)
 			if err != nil {
 				return val, err
 			}
@@ -201,11 +222,11 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 					break
 				}
 				if constant.Sign(constv) < 0 {
-					return val, fmt.Errorf("cannot assign %v to int64: value does not fit", constv.ExactString())
+					return val, newErr(fmt.Errorf("cannot assign %v to int64: value does not fit", constv.ExactString()))
 				}
 				out, exact = constant.Uint64Val(constv)
 				if !exact {
-					return val, fmt.Errorf("cannot assign %v to uint64: value does not fit", constv.ExactString())
+					return val, newErr(fmt.Errorf("cannot assign %v to uint64: value does not fit", constv.ExactString()))
 				}
 			case constant.Float:
 				out, _ = constant.Float64Val(constv)
@@ -223,7 +244,7 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 
 		rval := reflect.ValueOf(&out).Elem()
 		if recurse {
-			_, err := populate(rval.Elem(), node, convention, fn)
+			_, err := populate(rval.Elem(), node, convention, path, fn)
 			if err != nil {
 				return val, err
 			}

@@ -39,6 +39,9 @@ type Node struct {
 	// The interpreted value of the node
 	Value interface{}
 
+	// The starting position of the node in the file (ignoring comments and whitespace)
+	Position Cursor
+
 	// The immediate sibling of the node (may be nil if no sibling)
 	Sibling *Node
 
@@ -107,25 +110,4 @@ func (node *Node) Marshal(marshaler Marshaler) error {
 
 type Parser interface {
 	Parse() (*Node, error)
-}
-
-type UnexpectedNodeError []NodeType
-
-func (e UnexpectedNodeError) Error() string {
-	switch len(e) {
-	case 0:
-		return "unexpected node"
-	case 1:
-		return fmt.Sprintf("expected %v node", e[0])
-	case 2:
-		return fmt.Sprintf("expected %v or %v node", e[0], e[1])
-	default:
-		var out strings.Builder
-		fmt.Fprintf(&out, "expected %v node", e[0])
-		for i := 1; i < len(e)-1; i++ {
-			fmt.Fprintf(&out, ", %v", e[i])
-		}
-		fmt.Fprintf(&out, ", or %v", e[len(e)-1])
-		return out.String()
-	}
 }
