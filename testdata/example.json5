@@ -1,0 +1,14 @@
+{
+  // This is an important field that needs to be 42
+  answer: 42,
+
+  // Some prime numbers
+  primes: [2, 3, 5, 7, 11],
+
+  // Some people in my contact list
+  contacts: {
+    alice:  'alice@example.com',
+    bob:    'bob@example.com',
+    snaipe: 'me@snai.pe',
+  },
+}

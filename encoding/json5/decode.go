@@ -8,11 +8,12 @@ package json5
 import (
 	"encoding/json"
 	"io"
+	"os"
 	"reflect"
 
 	. "snai.pe/boa/syntax"
 
-	"snai.pe/boa"
+	"snai.pe/boa/encoding"
 	"snai.pe/boa/internal/reflectutil"
 )
 
@@ -48,7 +49,7 @@ func (decoder *Decoder) Decode(v interface{}) error {
 		panic("json5.Decoder.Decode: must pass in pointer value")
 	}
 
-	return reflectutil.Populate(ptr.Elem(), root.Child, boa.CamelCase, func(val reflect.Value, node *Node) (bool, error) {
+	return reflectutil.Populate(ptr.Elem(), root.Child, encoding.CamelCase, func(val reflect.Value, node *Node) (bool, error) {
 		switch unmarshaler := val.Interface().(type) {
 		case json.Unmarshaler:
 			data, err := MarshalJSON(node)
@@ -63,4 +64,15 @@ func (decoder *Decoder) Decode(v interface{}) error {
 		}
 		return true, nil
 	})
+}
+
+// Load is a convenience function to load a JSON5 document into the value
+// pointed at by v. It is functionally equivalent to NewDecoder(<file at path>).Decode(v).
+func Load(path string, v interface{}) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return NewDecoder(f).Decode(v)
 }

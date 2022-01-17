@@ -6,31 +6,31 @@
 package reflectutil
 
 import (
-	"encoding"
+	stdenc "encoding"
 	"fmt"
 	"go/constant"
 	"reflect"
 	"strings"
 
-	"snai.pe/boa"
+	"snai.pe/boa/encoding"
 	"snai.pe/boa/syntax"
 )
 
 type PopulateFunc func(val reflect.Value, node *syntax.Node) (bool, error)
 
-func Populate(val reflect.Value, node *syntax.Node, convention boa.NamingConvention, fn PopulateFunc) error {
+func Populate(val reflect.Value, node *syntax.Node, convention encoding.NamingConvention, fn PopulateFunc) error {
 	_, err := populate(val, node, convention, fn)
 	return err
 }
 
-func populate(val reflect.Value, node *syntax.Node, convention boa.NamingConvention, fn PopulateFunc) (reflect.Value, error) {
+func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingConvention, fn PopulateFunc) (reflect.Value, error) {
 	typ := val.Type()
 
 	if ok, err := fn(val, node); err != nil || ok {
 		return val, err
 	}
 
-	if unmarshaler, ok := val.Interface().(encoding.TextUnmarshaler); ok {
+	if unmarshaler, ok := val.Interface().(stdenc.TextUnmarshaler); ok {
 		if node.Type != syntax.NodeString {
 			return val, syntax.UnexpectedNodeError{syntax.NodeString}
 		}

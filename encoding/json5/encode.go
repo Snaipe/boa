@@ -10,9 +10,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"reflect"
 	"strings"
 	"unicode/utf8"
-	"reflect"
 
 	"snai.pe/boa/syntax"
 	"snai.pe/boa/internal/reflectutil"
@@ -437,4 +438,18 @@ func Prefix(prefix string) EncoderOption {
 	return func(encoder *Encoder) {
 		encoder.marshaler.prefix = prefix
 	}
+}
+
+// Save is a convenience function to save the value pointed at by v into a
+// JSON5 document at path. It is functionally equivalent to NewEncoder(<file at path>).Encode(v).
+func Save(path string, v interface{}) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := NewEncoder(f).Encode(v); err != nil {
+		return err
+	}
+	return f.Close()
 }
