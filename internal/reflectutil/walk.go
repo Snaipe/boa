@@ -15,17 +15,17 @@ func DeepEqual(lhs, rhs interface{}) error {
 }
 
 func deepEqual(lhs, rhs reflect.Value) error {
-	for lhs.Kind() == reflect.Ptr || lhs.Kind() == reflect.Ptr {
+	for lhs.Kind() == reflect.Ptr {
 		if lhs.IsNil() {
 			break
 		}
 		lhs = lhs.Elem()
 	}
-	for rhs.Kind() == reflect.Ptr || rhs.Kind() == reflect.Ptr {
+	for rhs.Kind() == reflect.Ptr {
 		if rhs.IsNil() {
 			break
 		}
-		rhs = lhs.Elem()
+		rhs = rhs.Elem()
 	}
 	if lhs.Kind() != rhs.Kind() {
 		return fmt.Errorf("mismatching kinds %v and %v", lhs.Kind(), rhs.Kind())
