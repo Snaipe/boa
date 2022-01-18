@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+
+	. "snai.pe/boa/encoding"
 )
 
 type Stringifier interface {
@@ -46,7 +48,7 @@ type PostMapValueMarshaler interface {
 	MarshalMapValuePost(mv, v reflect.Value, k string, i int) error
 }
 
-func Marshal(val reflect.Value, marshaler Marshaler) error {
+func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention) error {
 	typ := val.Type()
 
 	if ok, err := marshaler.MarshalValue(val); ok || err != nil {
@@ -85,7 +87,7 @@ func Marshal(val reflect.Value, marshaler Marshaler) error {
 			if ok, err := marshaler.MarshalListElem(val, elem, i); ok || err != nil {
 				return err
 			}
-			if err := Marshal(elem, marshaler); err != nil {
+			if err := Marshal(elem, marshaler, convention); err != nil {
 				return err
 			}
 			if post, ok := marshaler.(PostListElemMarshaler); ok {
@@ -143,7 +145,7 @@ func Marshal(val reflect.Value, marshaler Marshaler) error {
 			if ok, err := marshaler.MarshalMapValue(val, elem, k, i); ok || err != nil {
 				return err
 			}
-			if err := Marshal(elem, marshaler); err != nil {
+			if err := Marshal(elem, marshaler, convention); err != nil {
 				return err
 			}
 			if post, ok := marshaler.(PostMapValueMarshaler); ok {
@@ -166,7 +168,7 @@ func Marshal(val reflect.Value, marshaler Marshaler) error {
 		for i := 0; i < l; i++ {
 			field := typ.Field(i)
 
-			name := field.Name
+			name := convention.Format(field.Name)
 			if parser, ok := marshaler.(StructTagParser); ok {
 				if tag, ok := parser.ParseStructTag(field.Tag); ok {
 					name = tag
@@ -183,7 +185,7 @@ func Marshal(val reflect.Value, marshaler Marshaler) error {
 			if ok, err := marshaler.MarshalMapValue(val, elem, name, i); ok || err != nil {
 				return err
 			}
-			if err := Marshal(elem, marshaler); err != nil {
+			if err := Marshal(elem, marshaler, convention); err != nil {
 				return err
 			}
 			if post, ok := marshaler.(PostMapValueMarshaler); ok {

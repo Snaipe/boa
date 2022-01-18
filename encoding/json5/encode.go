@@ -15,6 +15,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"snai.pe/boa/encoding"
 	"snai.pe/boa/syntax"
 	"snai.pe/boa/internal/reflectutil"
 )
@@ -393,7 +394,7 @@ func (encoder *Encoder) Encode(v interface{}) error {
 	if node, ok := v.(*syntax.Node); ok {
 		return node.Marshal(&encoder.marshaler)
 	}
-	return reflectutil.Marshal(reflect.ValueOf(v), &encoder.marshaler)
+	return reflectutil.Marshal(reflect.ValueOf(v), &encoder.marshaler, encoding.CamelCase)
 }
 
 func MarshalJSON(v interface{}) ([]byte, error) {
