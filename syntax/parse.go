@@ -25,6 +25,7 @@ const (
 	NodeDocument NodeType = "document"
 	NodeMap      NodeType = "map"
 	NodeList     NodeType = "list"
+	NodeKeyPath  NodeType = "keypath"
 	NodeString   NodeType = "string"
 	NodeNumber   NodeType = "number"
 	NodeBool     NodeType = "bool"

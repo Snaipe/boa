@@ -14,7 +14,10 @@ import (
 	"snai.pe/boa/syntax"
 )
 
-var testNode *syntax.Node
+var (
+	testNode        *syntax.Node
+	testNodeKeypath *syntax.Node
+)
 
 type T struct {
 	Str        string
@@ -181,6 +184,37 @@ func init() {
 	prev = &structnode.Sibling
 
 	testNode = &m1
+
+	fillNodeKeypath := func(prev **syntax.Node, kv bool, prefix ...interface{}) **syntax.Node {
+		for i, n := range nodes {
+			var path []interface{}
+			if kv {
+				path = append(append(([]interface{})(nil), prefix...), n.key)
+			} else {
+				path = append(append(([]interface{})(nil), prefix...), i)
+			}
+			node := &syntax.Node{
+				Type:  syntax.NodeKeyPath,
+				Value: path,
+				Child: &syntax.Node{
+					Type:  n.typ,
+					Value: n.value,
+				},
+			}
+			*prev = node
+			prev = &node.Sibling
+		}
+		return prev
+	}
+
+	var mkp syntax.Node
+	mkp.Type = syntax.NodeMap
+	prev = fillNodeKeypath(&mkp.Child, true, "nested")
+	prev = fillNodeKeypath(prev, true, "nested", "map")
+	prev = fillNodeKeypath(prev, true, "nested", "struct")
+	prev = fillNodeKeypath(prev, false, "nested", "list")
+
+	testNodeKeypath = &mkp
 }
 
 func noop(reflect.Value, *syntax.Node) (bool, error) {
@@ -189,16 +223,38 @@ func noop(reflect.Value, *syntax.Node) (bool, error) {
 
 func TestPopulate(t *testing.T) {
 
-	var actual T
-	err := Populate(reflect.ValueOf(&actual).Elem(), testNode, encoding.CamelCase, noop)
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Run("nested", func(t *testing.T) {
+		var actual T
+		err := Populate(reflect.ValueOf(&actual).Elem(), testNode, encoding.CamelCase, noop)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	if err := DeepEqual(actual, expected); err != nil {
-		t.Log(actual.Struct)
-		t.Log(expected.Struct)
-		t.Fatal(err)
-	}
+		if err := DeepEqual(actual, expected); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("keypath", func(t *testing.T) {
+		type T2 struct {
+			Nested T
+		}
+		var (
+			act T2
+			exp = T2{Nested: expected}
+		)
+
+		err := Populate(reflect.ValueOf(&act).Elem(), testNodeKeypath, encoding.CamelCase, noop)
+		if err != nil {
+			t.Log(testNodeKeypath)
+			t.Fatal(err)
+		}
+
+		if err := DeepEqual(act, exp); err != nil {
+			t.Log(act)
+			t.Log(exp)
+			t.Fatal(err)
+		}
+	})
 
 }
