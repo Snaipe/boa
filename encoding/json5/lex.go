@@ -279,7 +279,7 @@ func parseUnicodeEscape(l *Lexer) (rune, error) {
 		default:
 			panic("programming error: got non-hex character")
 		}
-		codepoint = codepoint | (digit << (4 * int32(i)))
+		codepoint = codepoint | (digit << (4 * (3 - int32(i))))
 	}
 	return codepoint, nil
 }
