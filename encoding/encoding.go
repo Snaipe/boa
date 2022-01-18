@@ -22,8 +22,8 @@ type Decoder interface {
 type LoadError struct {
 	Filename string
 	syntax.Cursor
-	Target   string
-	Err      error
+	Target string
+	Err    error
 }
 
 func (e *LoadError) Error() string {

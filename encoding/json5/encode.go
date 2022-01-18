@@ -16,8 +16,8 @@ import (
 	"unicode/utf8"
 
 	"snai.pe/boa/encoding"
-	"snai.pe/boa/syntax"
 	"snai.pe/boa/internal/reflectutil"
+	"snai.pe/boa/syntax"
 )
 
 type Encoder struct {
@@ -334,7 +334,7 @@ func (m *marshaler) MarshalNodePost(node *syntax.Node) error {
 	}
 
 	var last *syntax.Token
-	for i := len(node.Suffix)-1; last == nil && i >= 0; i-- {
+	for i := len(node.Suffix) - 1; last == nil && i >= 0; i-- {
 		tok := &node.Suffix[i]
 		switch tok.Type {
 		case syntax.TokenComment, syntax.TokenInlineComment, syntax.TokenNewline, syntax.TokenWhitespace:
@@ -381,13 +381,13 @@ func (m *marshaler) MarshalNodePost(node *syntax.Node) error {
 }
 
 var (
-	_ reflectutil.Marshaler = (*marshaler)(nil)
-	_ reflectutil.PostListMarshaler = (*marshaler)(nil)
+	_ reflectutil.Marshaler             = (*marshaler)(nil)
+	_ reflectutil.PostListMarshaler     = (*marshaler)(nil)
 	_ reflectutil.PostListElemMarshaler = (*marshaler)(nil)
-	_ reflectutil.PostMapMarshaler = (*marshaler)(nil)
+	_ reflectutil.PostMapMarshaler      = (*marshaler)(nil)
 	_ reflectutil.PostMapValueMarshaler = (*marshaler)(nil)
-	_ reflectutil.Stringifier = (*marshaler)(nil)
-	_ reflectutil.StructTagParser = (*marshaler)(nil)
+	_ reflectutil.Stringifier           = (*marshaler)(nil)
+	_ reflectutil.StructTagParser       = (*marshaler)(nil)
 )
 
 func (encoder *Encoder) Encode(v interface{}) error {

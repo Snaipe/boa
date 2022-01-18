@@ -22,7 +22,7 @@ type Decoder struct {
 }
 
 func NewDecoder(rd io.Reader) *Decoder {
-	type namer interface{
+	type namer interface {
 		Name() string
 	}
 	name := ""

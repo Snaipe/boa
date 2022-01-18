@@ -20,20 +20,20 @@ type Tag struct {
 func LookupTag(tag reflect.StructTag, key string, options bool) (Tag, bool) {
 	s := string(tag)
 	for {
-		i := strings.IndexFunc(s, func (r rune) bool {
+		i := strings.IndexFunc(s, func(r rune) bool {
 			return r != ' '
 		})
 		if i == -1 {
 			break
 		}
-		end := strings.IndexFunc(s, func (r rune) bool {
+		end := strings.IndexFunc(s, func(r rune) bool {
 			return !unicode.In(r, unicode.L, unicode.Nd)
 		})
 		if end == -1 {
-			end = len(s)-1
+			end = len(s) - 1
 		}
 		name := s[i:end]
-		i = end+1
+		i = end + 1
 		if i >= len(s) {
 			if s[i:] == key {
 				return Tag{Key: s[i:]}, true

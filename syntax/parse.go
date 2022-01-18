@@ -35,7 +35,7 @@ const (
 // Node represents a node in a parse tree.
 type Node struct {
 	// The type of node
-	Type    NodeType
+	Type NodeType
 
 	// The interpreted value of the node
 	Value interface{}
@@ -68,7 +68,7 @@ func (node *Node) text(out *strings.Builder, prefix string, start bool) {
 			fmt.Fprintf(out, "\n%s    [", prefix)
 			for i, tok := range tokens {
 				fmt.Fprintf(out, "{%v %q %d:%d}", tok.Type, tok.Raw, tok.Start.Line, tok.Start.Column)
-				if i == len(tokens) - 1 {
+				if i == len(tokens)-1 {
 					out.WriteString("]")
 				} else {
 					out.WriteString(", ")
@@ -78,7 +78,7 @@ func (node *Node) text(out *strings.Builder, prefix string, start bool) {
 	}
 	if node.Child != nil {
 		out.WriteString(":\n")
-		node.Child.text(out, prefix + "  ", true)
+		node.Child.text(out, prefix+"  ", true)
 	}
 	if node.Sibling != nil {
 		fmt.Fprintf(out, ",\n")

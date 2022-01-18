@@ -119,14 +119,14 @@ func populate(val reflect.Value, at []interface{}, node *syntax.Node, convention
 			}
 			if val.Len() <= idx {
 				if idx < val.Cap() {
-					val.SetLen(idx+1)
+					val.SetLen(idx + 1)
 				} else {
 					if kind == reflect.Array {
 						return orig, newErr(fmt.Errorf("cannot index array at %d: index out of bounds", idx))
 					}
 					ncap := val.Cap()
 					for idx >= ncap {
-						ncap = ncap * 2 + 1
+						ncap = ncap*2 + 1
 					}
 					nval := reflect.MakeSlice(typ, idx+1, ncap)
 					for i := 0; i < idx; i++ {

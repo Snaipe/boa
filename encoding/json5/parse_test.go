@@ -67,7 +67,7 @@ func TestStandardSuite(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					f, err := ioutil.TempFile("", "test-*" + ext)
+					f, err := ioutil.TempFile("", "test-*"+ext)
 					if err != nil {
 						t.Fatal(err)
 					}

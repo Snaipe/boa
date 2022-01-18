@@ -60,7 +60,7 @@ func (typ TokenType) String() string {
 }
 
 type backbuffer struct {
-	buf [2]struct{
+	buf [2]struct {
 		r   rune
 		w   int
 		pos Cursor
@@ -124,12 +124,12 @@ type Lexer struct {
 	// The current cursor position at which the lexer is reading.
 	Position Cursor
 
-	init    StateFunc    // initial state
-	state   StateFunc    // current state
-	token   bytes.Buffer // current token
-	tokens  chan Token   // token ring buffer
-	prev    backbuffer   // stashed runes for UnreadRune
-	unread  int          // number of unread bytes
+	init   StateFunc    // initial state
+	state  StateFunc    // current state
+	token  bytes.Buffer // current token
+	tokens chan Token   // token ring buffer
+	prev   backbuffer   // stashed runes for UnreadRune
+	unread int          // number of unread bytes
 }
 
 func NewLexer(input io.Reader, init StateFunc) *Lexer {
@@ -236,7 +236,7 @@ func (l *Lexer) ReadRune() (r1 rune, w1 int, err1 error) {
 func (l *Lexer) UnreadRune() error {
 	_, w, _ := l.prev.unread()
 	l.unread++
-	l.token.Truncate(l.token.Len()-w)
+	l.token.Truncate(l.token.Len() - w)
 	return nil
 }
 

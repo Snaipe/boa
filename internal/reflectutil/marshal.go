@@ -22,7 +22,7 @@ type StructTagParser interface {
 	ParseStructTag(tag reflect.StructTag) (string, bool)
 }
 
-type Marshaler interface{
+type Marshaler interface {
 	MarshalValue(v reflect.Value) (bool, error)
 	MarshalString(v reflect.Value) error
 	MarshalList(v reflect.Value) (bool, error)
