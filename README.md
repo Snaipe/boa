@@ -26,6 +26,7 @@ manipulate, and save configurations.
 The following languages are supported:
 
 * JSON5
+* TOML
 
 In addition, all configuration parsers have the following properties:
 

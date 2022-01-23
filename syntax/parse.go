@@ -31,6 +31,7 @@ const (
 	NodeNumber   NodeType = "number"
 	NodeBool     NodeType = "bool"
 	NodeNil      NodeType = "nil"
+	NodeDateTime NodeType = "datetime"
 )
 
 // Node represents a node in a parse tree.

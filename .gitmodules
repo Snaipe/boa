@@ -1,3 +1,6 @@
 [submodule "encoding/json5/testdata"]
 	path = encoding/json5/testdata
 	url = https://github.com/json5/json5-tests
+[submodule "encoding/toml/testdata"]
+	path = encoding/toml/testdata
+	url = https://github.com/BurntSushi/toml-test

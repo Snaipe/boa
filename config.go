@@ -12,6 +12,7 @@ import (
 
 	"snai.pe/boa/encoding"
 	"snai.pe/boa/encoding/json5"
+	"snai.pe/boa/encoding/toml"
 )
 
 // Load loads the configuration file at path into the specified value pointed
@@ -21,6 +22,7 @@ import (
 // specified path:
 //
 //     - JSON5: .json and .json5
+//     - TOML: .toml
 //
 // Custom file extensions are not supported, and one of the decoders in
 // snai.pe/boa/encoding must be used instead.
@@ -37,6 +39,8 @@ func Load(path string, v interface{}) error {
 	switch ext {
 	case ".json", ".json5":
 		decoder = json5.NewDecoder(f)
+	case ".toml":
+		decoder = toml.NewDecoder(f)
 	default:
 		return fmt.Errorf("no known decoder for file extension %q", ext)
 	}
