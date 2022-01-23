@@ -11,6 +11,7 @@ import (
 	"go/constant"
 	"reflect"
 	"strings"
+	"time"
 
 	"snai.pe/boa/encoding"
 	"snai.pe/boa/syntax"
@@ -19,11 +20,11 @@ import (
 type PopulateFunc func(val reflect.Value, node *syntax.Node) (bool, error)
 
 func Populate(val reflect.Value, node *syntax.Node, convention encoding.NamingConvention, fn PopulateFunc) error {
-	_, err := populate(val, nil, node, convention, nil, fn)
+	_, err := populate(val, node, convention, nil, fn)
 	return err
 }
 
-func populate(val reflect.Value, at []interface{}, node *syntax.Node, convention encoding.NamingConvention, path []string, fn PopulateFunc) (reflect.Value, error) {
+func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingConvention, path []string, fn PopulateFunc) (reflect.Value, error) {
 	typ := val.Type()
 
 	target := func() string {
@@ -41,138 +42,90 @@ func populate(val reflect.Value, at []interface{}, node *syntax.Node, convention
 		return newErr(fmt.Errorf("config has %v, but expected %v instead", node.Type, exp))
 	}
 
-	zeroValFromNode := func() interface{} {
+	toValue := func(node *syntax.Node, path []string) (reflect.Value, error) {
+		var (
+			rval    reflect.Value
+			recurse bool
+		)
 		switch node.Type {
 		case syntax.NodeBool:
-			return false
+			out := node.Value.(bool)
+			rval = reflect.ValueOf(&out).Elem()
 		case syntax.NodeString:
-			return node.Value.(string)
+			out := node.Value.(string)
+			rval = reflect.ValueOf(&out).Elem()
 		case syntax.NodeNumber:
-			constv := node.Value.(constant.Value)
-			switch constv.Kind() {
-			case constant.Int:
-				_, exact := constant.Int64Val(constv)
-				if exact {
-					return int64(0)
+			switch constv := node.Value.(type) {
+			case constant.Value:
+				switch constv.Kind() {
+				case constant.Int:
+					rval = ConstantToInt(constv)
+				case constant.Float:
+					rval = ConstantToFloat(constv)
+				default:
+					panic(fmt.Sprintf("unsupported constant kind %v for number node", constv.Kind()))
 				}
-				if constant.Sign(constv) > 0 {
-					if _, exact = constant.Uint64Val(constv); exact {
-						return uint64(0)
-					}
-				}
-			case constant.Float:
-				_, exact := constant.Float64Val(constv)
-				if exact {
-					return float64(0)
-				}
+			case float64: // for infinites
+				rval = reflect.ValueOf(&constv).Elem()
+			default:
+				panic(fmt.Sprintf("unsupported node value %T for number node", constv))
 			}
-			return constant.Val(constv)
+		case syntax.NodeDateTime:
+			out := node.Value
+			rval = reflect.ValueOf(&out).Elem().Elem()
+		case syntax.NodeNil:
+			var out interface{}
+			rval = reflect.ValueOf(&out).Elem()
 		case syntax.NodeMap:
-			return make(map[interface{}]interface{})
+			var out map[interface{}]interface{}
+			rval = reflect.ValueOf(&out).Elem()
+			recurse = true
 		case syntax.NodeList:
-			return ([]interface{})(nil)
-		}
-		return nil
-	}
-
-	orig := val
-	for len(at) > 0 {
-		typ = val.Type()
-		elem := at[0]
-		velem := reflect.ValueOf(elem)
-		switch kind := val.Kind(); kind {
-		case reflect.Ptr:
-			if val.IsNil() {
-				val.Set(reflect.New(typ.Elem()))
-			}
-			val = val.Elem()
-			continue
-		case reflect.Interface:
-			if val.IsNil() {
-				if len(at) == 1 {
-					val.Set(reflect.ValueOf(zeroValFromNode()))
-				} else {
-					val.Set(reflect.ValueOf(make(map[interface{}]interface{})))
-				}
-			}
-			val = val.Elem()
-			continue
-		case reflect.Map:
-			if !velem.Type().AssignableTo(typ.Key()) {
-				return orig, newErr(fmt.Errorf("cannot index %v with %T %q", typ, elem, elem))
-			}
-			if val.IsNil() {
-				val.Set(reflect.MakeMap(typ))
-			}
-			mval := val.MapIndex(velem)
-			if !mval.IsValid() {
-				mval = reflect.New(typ.Elem()).Elem()
-				defer func(val, mval, velem reflect.Value) {
-					val.SetMapIndex(velem, mval)
-				}(val, mval, velem)
-			}
-			val = mval
-		case reflect.Slice, reflect.Array:
-			idx, ok := elem.(int)
-			if !ok {
-				return orig, newErr(fmt.Errorf("cannot index slice or array with %T %q", elem, elem))
-			}
-			if val.Len() <= idx {
-				if idx < val.Cap() {
-					val.SetLen(idx + 1)
-				} else {
-					if kind == reflect.Array {
-						return orig, newErr(fmt.Errorf("cannot index array at %d: index out of bounds", idx))
-					}
-					ncap := val.Cap()
-					for idx >= ncap {
-						ncap = ncap*2 + 1
-					}
-					nval := reflect.MakeSlice(typ, idx+1, ncap)
-					for i := 0; i < idx; i++ {
-						nval.Index(i).Set(val.Index(i))
-					}
-					val.Set(nval)
-				}
-			}
-			val = val.Index(idx)
-		case reflect.Struct:
-			fname, ok := elem.(string)
-			if !ok {
-				return orig, newErr(fmt.Errorf("cannot find struct field with non-string name type %T", elem))
-			}
-			for i := 0; i < typ.NumField(); i++ {
-				field := typ.Field(i)
-				if fname == convention.Format(field.Name) {
-					val = val.Field(i)
-					break
-				}
-			}
+			var out []interface{}
+			rval = reflect.ValueOf(&out).Elem()
+			recurse = true
 		default:
-			return orig, newErr(fmt.Errorf("cannot index %v with %T key %q", typ, elem, elem))
+			return val, fmt.Errorf("unsupported node type %v", node.Type)
 		}
-		at = at[1:]
+
+		if recurse {
+			_, err := populate(rval, node, convention, path, fn)
+			if err != nil {
+				return rval, err
+			}
+		}
+		return rval, nil
 	}
 
 	if ok, err := fn(val, node); err != nil || ok {
-		return orig, newErr(err)
+		return val, newErr(err)
 	}
 
 	switch rval := val.Interface().(type) {
 	case stdenc.TextUnmarshaler:
 		if node.Type != syntax.NodeString {
-			return orig, newNodeErr(syntax.NodeString)
+			return val, newNodeErr(syntax.NodeString)
 		}
 		if err := rval.UnmarshalText([]byte(node.Value.(string))); err != nil {
-			return orig, newErr(err)
+			return val, newErr(err)
 		}
-		return orig, nil
+		return val, nil
 	case []byte:
 		if node.Type != syntax.NodeString {
-			return orig, newNodeErr(syntax.NodeString)
+			return val, newNodeErr(syntax.NodeString)
 		}
 		val.Set(reflect.ValueOf([]byte(node.Value.(string))))
-		return orig, nil
+		return val, nil
+	case time.Time:
+		if node.Type != syntax.NodeDateTime {
+			return val, newNodeErr(syntax.NodeDateTime)
+		}
+		t, ok := node.Value.(time.Time)
+		if !ok {
+			panic(fmt.Sprintf("unexpected value type %T for datetime node", node.Value))
+		}
+		val.Set(reflect.ValueOf(t))
+		return val, nil
 	}
 
 	switch kind := val.Kind(); kind {
@@ -181,56 +134,67 @@ func populate(val reflect.Value, at []interface{}, node *syntax.Node, convention
 		if val.IsNil() {
 			val.Set(reflect.New(typ.Elem()))
 		}
-		if _, err := populate(val.Elem(), nil, node, convention, path, fn); err != nil {
-			return orig, err
+		if _, err := populate(val.Elem(), node, convention, path, fn); err != nil {
+			return val, err
 		}
 
 	case reflect.Bool:
 		if node.Type != syntax.NodeBool {
-			return orig, newNodeErr(syntax.NodeBool)
+			return val, newNodeErr(syntax.NodeBool)
 		}
 		val.SetBool(node.Value.(bool))
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		if node.Type != syntax.NodeNumber {
-			return orig, newNodeErr(syntax.NodeNumber)
+			return val, newNodeErr(syntax.NodeNumber)
 		}
 		i, exact := constant.Int64Val(node.Value.(constant.Value))
 		if !exact {
-			return orig, newErr(fmt.Errorf("cannot assign %v to %v: value does not fit", node.Value, typ))
+			return val, newErr(fmt.Errorf("cannot assign %v to %v: value does not fit", node.Value, typ))
 		}
 		val.SetInt(i)
 
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		if node.Type != syntax.NodeNumber {
-			return orig, newNodeErr(syntax.NodeNumber)
+			return val, newNodeErr(syntax.NodeNumber)
 		}
 		i, exact := constant.Uint64Val(node.Value.(constant.Value))
 		if !exact {
-			return orig, newErr(fmt.Errorf("cannot assign %v to %v: value does not fit", node.Value, typ))
+			return val, newErr(fmt.Errorf("cannot assign %v to %v: value does not fit", node.Value, typ))
 		}
 		val.SetUint(i)
 
 	case reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128:
 		if node.Type != syntax.NodeNumber {
-			return orig, newNodeErr(syntax.NodeNumber)
+			return val, newNodeErr(syntax.NodeNumber)
 		}
-		f, _ := constant.Float64Val(node.Value.(constant.Value))
-		if kind == reflect.Complex64 || kind == reflect.Complex128 {
-			val.SetComplex(complex(f, 0))
-		} else {
-			val.SetFloat(f)
+		switch constv := node.Value.(type) {
+		case constant.Value:
+			f, _ := constant.Float64Val(constv)
+			if kind == reflect.Complex64 || kind == reflect.Complex128 {
+				val.SetComplex(complex(f, 0))
+			} else {
+				val.SetFloat(f)
+			}
+		case float64:
+			if kind == reflect.Complex64 || kind == reflect.Complex128 {
+				val.SetComplex(complex(constv, 0))
+			} else {
+				val.SetFloat(constv)
+			}
+		default:
+			panic(fmt.Sprintf("unsupported node value %T for number node", constv))
 		}
 
 	case reflect.String:
 		if node.Type != syntax.NodeString {
-			return orig, newNodeErr(syntax.NodeString)
+			return val, newNodeErr(syntax.NodeString)
 		}
 		val.SetString(node.Value.(string))
 
 	case reflect.Array, reflect.Slice:
 		if node.Type != syntax.NodeList {
-			return orig, newNodeErr(syntax.NodeList)
+			return val, newNodeErr(syntax.NodeList)
 		}
 		if kind == reflect.Slice {
 			var l int
@@ -244,50 +208,65 @@ func populate(val reflect.Value, at []interface{}, node *syntax.Node, convention
 		var idx int
 		for n := node.Child; n != nil; n = n.Sibling {
 			if idx >= val.Len() && kind == reflect.Array {
-				return orig, newErr(fmt.Errorf("cannot assign %v to index %d: index out of bounds", node.Value, idx))
+				return val, newErr(fmt.Errorf("cannot assign %v to index %d: index out of bounds", node.Value, idx))
 			}
-			if _, err := populate(val.Index(idx), nil, n, convention, append(path, fmt.Sprintf("[%d]", idx)), fn); err != nil {
-				return orig, err
+			if _, err := populate(val.Index(idx), n, convention, append(path, fmt.Sprintf("[%d]", idx)), fn); err != nil {
+				return val, err
 			}
 			idx++
 		}
 
 	case reflect.Map:
 		if node.Type != syntax.NodeMap {
-			return orig, newNodeErr(syntax.NodeMap)
+			return val, newNodeErr(syntax.NodeMap)
 		}
 		if val.IsNil() {
 			val.Set(reflect.MakeMap(typ))
 		}
 		for key := node.Child; key != nil; key = key.Sibling {
-			var (
-				at   []interface{}
-				rkey reflect.Value
-			)
-			if key.Type == syntax.NodeKeyPath {
-				at = key.Value.([]interface{})
-				rkey, at = reflect.ValueOf(at[0]), at[1:]
-			} else {
-				var err error
-				rkey, err = populate(reflect.New(typ.Key()).Elem(), nil, key, convention, path, fn)
-				if err != nil {
-					return orig, err
-				}
-			}
 			value := key.Child
 
-			rval, err := populate(reflect.New(typ.Elem()).Elem(), at, value, convention, append(path, fmt.Sprintf("[%v]", rkey.Interface())), fn)
-			if err != nil {
-				return orig, err
-			}
+			if key.Type == syntax.NodeKeyPath {
+				at := key.Value.([]interface{})
+				p := path
+				for _, e := range at {
+					p = append(p, fmt.Sprintf("[%v]", e))
+				}
+				rval, err := toValue(value, p)
+				if err != nil {
+					return val, err
+				}
+				if err := Set(val, rval, convention, at...); err != nil {
+					return val, err
+				}
+			} else {
+				rkey, err := populate(reflect.New(typ.Key()).Elem(), key, convention, path, fn)
+				if err != nil {
+					return val, err
+				}
 
-			val.SetMapIndex(rkey, rval)
+				rval := reflect.New(typ.Elem()).Elem()
+				mval := val.MapIndex(rkey)
+				if mval.IsValid() {
+					rval.Set(mval)
+				}
+				set := !mval.IsValid()
+
+				rval, err = populate(rval, value, convention, append(path, fmt.Sprintf("[%v]", rkey.Interface())), fn)
+				if err != nil {
+					return val, err
+				}
+
+				if set {
+					val.SetMapIndex(rkey, rval)
+				}
+			}
 		}
 
 	case reflect.Struct:
 
 		if node.Type != syntax.NodeMap {
-			return orig, newNodeErr(syntax.NodeMap)
+			return val, newNodeErr(syntax.NodeMap)
 		}
 		fields := make(map[string]int, typ.NumField()*2)
 		for i := 0; i < typ.NumField(); i++ {
@@ -298,10 +277,7 @@ func populate(val reflect.Value, at []interface{}, node *syntax.Node, convention
 		for key := node.Child; key != nil; key = key.Sibling {
 			value := key.Child
 
-			var (
-				at        []interface{}
-				fieldname string
-			)
+			var fieldname string
 			switch key.Type {
 			case syntax.NodeString:
 				fieldname = key.Value.(string)
@@ -314,15 +290,20 @@ func populate(val reflect.Value, at []interface{}, node *syntax.Node, convention
 			case syntax.NodeNil:
 				fieldname = "null"
 			case syntax.NodeKeyPath:
-				at = key.Value.([]interface{})
-				var ok bool
-				fieldname, ok = at[0].(string)
-				if !ok {
-					return orig, newErr(fmt.Errorf("cannot find struct field with non-string name type %T", at[0]))
+				at := key.Value.([]interface{})
+				for _, e := range at {
+					path = append(path, fmt.Sprintf("[%v]", e))
 				}
-				at = at[1:]
-			default:
+				rval, err := toValue(value, path)
+				if err != nil {
+					return val, err
+				}
+				if err := Set(val, rval, convention, at...); err != nil {
+					return val, err
+				}
 				continue
+			default:
+				return val, fmt.Errorf("unsupported node type %v", node.Type)
 			}
 
 			fieldidx, ok := fields[fieldname]
@@ -332,75 +313,171 @@ func populate(val reflect.Value, at []interface{}, node *syntax.Node, convention
 			if !ok {
 				continue
 			}
-			_, err := populate(val.Field(fieldidx), at, value, convention, append(path, fmt.Sprintf(".%v", typ.Field(fieldidx).Name)), fn)
+			_, err := populate(val.Field(fieldidx), value, convention, append(path, fmt.Sprintf(".%v", typ.Field(fieldidx).Name)), fn)
 			if err != nil {
-				return orig, err
+				return val, err
 			}
 		}
 
 	case reflect.Interface:
-		var (
-			out     interface{}
-			recurse bool
-		)
-		switch node.Type {
-		case syntax.NodeBool:
-			out = node.Value.(bool)
-		case syntax.NodeString:
-			out = node.Value.(string)
-		case syntax.NodeNumber:
-			constv := node.Value.(constant.Value)
-			switch constv.Kind() {
-			case constant.Int:
-				i, exact := constant.Int64Val(constv)
-				if exact {
-					out = i
-					break
-				}
-				if constant.Sign(constv) > 0 {
-					out, exact = constant.Uint64Val(constv)
-					if exact {
-						break
-					}
-				}
-				out = constant.Val(constv)
-			case constant.Float:
-				f, exact := constant.Float64Val(constv)
-				if exact {
-					out = f
-					break
-				}
-				out = constant.Val(constv)
-			}
-		case syntax.NodeNil:
-			break
-		case syntax.NodeMap:
-			out = map[interface{}]interface{}{}
-			recurse = true
-		case syntax.NodeList:
-			var slice []interface{}
-			out = &slice
-			recurse = true
+		rval, err := toValue(node, path)
+		if err != nil {
+			return val, err
 		}
-
-		rval := reflect.ValueOf(&out).Elem()
-		if recurse {
-			_, err := populate(rval.Elem(), nil, node, convention, path, fn)
-			if err != nil {
-				return orig, err
-			}
-		}
-
-		switch node.Type {
-		case syntax.NodeList:
-			val.Set(rval.Elem())
-		default:
-			val.Set(rval)
-		}
+		val.Set(rval)
 
 	default:
-		return orig, fmt.Errorf("cannot assign %v to %v: unsupported type", node.Value, typ)
+		return val, fmt.Errorf("cannot assign %v to %v: unsupported type", node.Value, typ)
 	}
 
-	return orig, nil
+	return val, nil
+}
+
+func Set(val, newval reflect.Value, convention encoding.NamingConvention, at ...interface{}) error {
+	if !newval.IsValid() || !val.IsValid() {
+		panic("cannot call Set with invalid value")
+	}
+	if len(at) == 0 {
+		for newval.Kind() == reflect.Interface {
+			newval = newval.Elem()
+		}
+		v := val
+		for ; v.IsValid() && v.Kind() == reflect.Interface; v = v.Elem() {
+			continue
+		}
+		kind := v.Kind()
+		// Some special cases:
+		switch {
+		// Floating-point numbers are allowed to be converted to complex numbers
+		case kind == reflect.Complex64 && (newval.Kind() == reflect.Float32 || newval.Kind() == reflect.Float64):
+			val.SetComplex(complex(newval.Float(), 0))
+		case kind == reflect.Complex128 && (newval.Kind() == reflect.Float32 || newval.Kind() == reflect.Float64):
+			val.SetComplex(complex(newval.Float(), 0))
+		// Maps get merged
+		case kind == reflect.Map && newval.Kind() == reflect.Map:
+			for _, k := range newval.MapKeys() {
+				v.SetMapIndex(k, newval.MapIndex(k))
+			}
+		// For everything else, try normal conversion rules
+		default:
+			val.Set(newval.Convert(val.Type()))
+		}
+		return nil
+	}
+
+	elem := at[0]
+	rval := val
+	for rval.Kind() == reflect.Interface {
+		rval = rval.Elem()
+		if !rval.IsValid() {
+			if _, ok := elem.(int); ok {
+				var out []interface{}
+				rval = reflect.ValueOf(&out).Elem()
+			} else {
+				var out map[interface{}]interface{}
+				rval = reflect.ValueOf(&out).Elem()
+			}
+		}
+	}
+	typ := rval.Type()
+
+	velem := reflect.ValueOf(elem)
+	switch kind := rval.Kind(); kind {
+	case reflect.Ptr:
+		if rval.IsNil() {
+			rval.Set(reflect.New(typ.Elem()))
+			val.Set(rval)
+		}
+		return Set(rval.Elem(), newval, convention, at...)
+	case reflect.Map:
+		if !velem.Type().AssignableTo(typ.Key()) {
+			return fmt.Errorf("cannot index %v with %T %q", typ, elem, elem)
+		}
+		if rval.IsNil() {
+			rval.Set(reflect.MakeMap(typ))
+			val.Set(rval)
+		}
+		newvval := reflect.New(typ.Elem()).Elem()
+		vval := rval.MapIndex(velem)
+		if vval.IsValid() {
+			newvval.Set(vval)
+		}
+		err := Set(newvval, newval, convention, at[1:]...)
+		if err != nil {
+			return err
+		}
+		rval.SetMapIndex(velem, newvval)
+		return nil
+	case reflect.Slice, reflect.Array:
+		idx, ok := elem.(int)
+		if !ok {
+			return fmt.Errorf("cannot index slice or array with %T %q", elem, elem)
+		}
+		if rval.Len() <= idx {
+			if kind == reflect.Array {
+				return fmt.Errorf("cannot index array at %d: index out of bounds", idx)
+			}
+			ncap := rval.Cap()
+			for idx >= ncap {
+				ncap = ncap*2 + 1
+			}
+			nval := reflect.MakeSlice(typ, idx+1, ncap)
+			for i := 0; i < rval.Len(); i++ {
+				nval.Index(i).Set(rval.Index(i))
+			}
+			if err := Set(nval.Index(idx), newval, convention, at[1:]...); err != nil {
+				return err
+			}
+			val.Set(nval)
+			return nil
+		}
+		if err := Set(rval.Index(idx), newval, convention, at[1:]...); err != nil {
+			return err
+		}
+		return nil
+	case reflect.Struct:
+		fname, ok := elem.(string)
+		if !ok {
+			return fmt.Errorf("cannot find struct field with non-string name type %T", elem)
+		}
+		for i := 0; i < typ.NumField(); i++ {
+			field := typ.Field(i)
+			if fname == convention.Format(field.Name) {
+				return Set(rval.Field(i), newval, convention, at[1:]...)
+			}
+		}
+		return fmt.Errorf("cannot find struct field with name %v", fname)
+	default:
+		return fmt.Errorf("cannot index %v with %T key %q", typ, elem, elem)
+	}
+}
+
+// ConstantToInt returns an int-like value from a constant. It will return an
+// int, uint, or *big.Int depending on whether the value fits in the types
+// in that order.
+func ConstantToInt(constv constant.Value) reflect.Value {
+	i, exact := constant.Int64Val(constv)
+	if exact {
+		return reflect.ValueOf(&i).Elem()
+	}
+	if constant.Sign(constv) > 0 {
+		u, exact := constant.Uint64Val(constv)
+		if exact {
+			return reflect.ValueOf(&u).Elem()
+		}
+	}
+	out := constant.Val(constv)
+	return reflect.ValueOf(&out).Elem().Elem()
+}
+
+// ConstantToFloat returns a float-like value from a constant. It will return a
+// float64, *big.Rat, or *big.Float depending on whether the value fits in the
+// types in that order without losing precision.
+func ConstantToFloat(constv constant.Value) reflect.Value {
+	f, exact := constant.Float64Val(constv)
+	if exact {
+		return reflect.ValueOf(&f).Elem()
+	}
+	out := constant.Val(constv)
+	return reflect.ValueOf(&out).Elem().Elem()
 }
