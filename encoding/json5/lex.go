@@ -327,9 +327,9 @@ func (state *lexerState) lexIdentifier(l *Lexer) StateFunc {
 
 	switch l.Token() {
 	case "Infinity":
-		l.Emit(TokenNumber, constant.MakeFloat64(math.Inf(1)))
+		l.Emit(TokenNumber, math.Inf(1))
 	case "NaN":
-		l.Emit(TokenNumber, constant.MakeFloat64(math.NaN()))
+		l.Emit(TokenNumber, math.NaN())
 	case "null":
 		l.Emit(TokenNil, nil)
 	case "true":

@@ -6,6 +6,7 @@
 package json5
 
 import (
+	"fmt"
 	"go/constant"
 	gotokens "go/token"
 	"io"
@@ -114,7 +115,14 @@ func (p *parser) Value(token Token, node *Node) error {
 			return p.Error(next, ErrUnexpectedToken)
 		}
 		if token.Type == TokenMinus {
-			node.Value = constant.UnaryOp(gotokens.SUB, next.Value.(constant.Value), 0)
+			switch constv := next.Value.(type) {
+			case constant.Value:
+				node.Value = constant.UnaryOp(gotokens.SUB, constv, 0)
+			case float64:
+				node.Value = -constv
+			default:
+				panic(fmt.Sprintf("unsupported type %T for number node", constv))
+			}
 		} else {
 			node.Value = next.Value
 		}
