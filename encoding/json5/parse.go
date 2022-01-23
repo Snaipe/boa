@@ -48,7 +48,7 @@ func (p *parser) Error(token Token, err error) error {
 		}
 		return err
 	}
-	err = TokenTypeError{Type: token.Type, Err: err}
+	err = TokenTypeError{Token: token, Err: err}
 	err = Error{Filename: p.name, Cursor: token.Start, Err: err}
 	return err
 }

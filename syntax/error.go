@@ -7,6 +7,7 @@ package syntax
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -39,12 +40,24 @@ func (e Error) Unwrap() error {
 }
 
 type TokenTypeError struct {
-	Type TokenType
-	Err  error
+	Token Token
+	Err   error
 }
 
 func (e TokenTypeError) Error() string {
-	return fmt.Sprintf("on token %v: %v", e.Type, e.Err)
+	if e.Token.Raw == "" {
+		return fmt.Sprintf("on token %v: %v", e.Token.Type, e.Err)
+	}
+	var out strings.Builder
+	for _, r := range e.Token.Raw {
+		if r != '\'' {
+			s := strconv.QuoteRune(r)
+			out.WriteString(s[1 : len(s)-1])
+		} else {
+			out.WriteRune(r)
+		}
+	}
+	return fmt.Sprintf("on token `%v`: %v", out.String(), e.Err)
 }
 
 func (e TokenTypeError) Unwrap() error {
