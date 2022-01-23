@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"unicode/utf8"
 )
 
 // Cursor represents a cursor position within a document, i.e. a line and
@@ -61,9 +63,10 @@ func (typ TokenType) String() string {
 
 type backbuffer struct {
 	buf [2]struct {
-		r   rune
-		w   int
-		pos Cursor
+		r    rune
+		w    int
+		next Cursor
+		pos  Cursor
 	}
 	ridx int
 	rlen int
@@ -82,25 +85,25 @@ func (b *backbuffer) cap() int {
 	return cap(b.buf)
 }
 
-func (b *backbuffer) write(r rune, w int, pos Cursor) {
+func (b *backbuffer) write(r rune, w int, next, pos Cursor) {
 	if b.rlen != 0 {
 		panic("programming error: can't write into backbuffer while there are unread runes")
 	}
 	e := &b.buf[b.widx]
-	e.r, e.w, e.pos = r, w, pos
+	e.r, e.w, e.next, e.pos = r, w, next, pos
 	b.widx = b.inc(b.widx, 1)
 }
 
-func (b *backbuffer) read() (rune, int, Cursor) {
+func (b *backbuffer) read() (rune, int, Cursor, Cursor) {
 	if b.rlen == 0 {
 		panic("programming error: no runes in backbuffer")
 	}
 	e := &b.buf[b.inc(b.widx, -b.rlen)]
 	b.rlen--
-	return e.r, e.w, e.pos
+	return e.r, e.w, e.next, e.pos
 }
 
-func (b *backbuffer) unread() (rune, int, Cursor) {
+func (b *backbuffer) unread() (rune, int, Cursor, Cursor) {
 	if b.rlen >= len(b.buf) {
 		panic("programming error: can't unread more bytes than backbuffer capacity")
 	}
@@ -109,7 +112,7 @@ func (b *backbuffer) unread() (rune, int, Cursor) {
 	if ret.w == 0 {
 		panic("programming error: can't unread more bytes than backbuffer length")
 	}
-	return ret.r, ret.w, ret.pos
+	return ret.r, ret.w, ret.next, ret.pos
 }
 
 type StateFunc func(*Lexer) StateFunc
@@ -121,7 +124,10 @@ type Lexer struct {
 	// The cursor position marking the start of the current token.
 	TokenPosition Cursor
 
-	// The current cursor position at which the lexer is reading.
+	// The cursor position at which the lexer will be reading next.
+	NextPosition Cursor
+
+	// The cursor position of the current rune.
 	Position Cursor
 
 	init   StateFunc    // initial state
@@ -149,8 +155,9 @@ func NewLexer(input io.Reader, init StateFunc) *Lexer {
 
 func (l *Lexer) Reset() {
 	l.state = l.init
-	l.Position = Cursor{1, 1}
-	l.TokenPosition = l.Position
+	l.NextPosition = Cursor{1, 1}
+	l.Position = l.NextPosition
+	l.TokenPosition = l.NextPosition
 	l.tokens = make(chan Token, 2)
 	l.token.Reset()
 }
@@ -177,11 +184,12 @@ func (l *Lexer) Error(err error) StateFunc {
 	token := Token{
 		Type:  typ,
 		Value: err,
+		Raw:   l.Token(),
 		Start: l.TokenPosition,
 		End:   l.Position,
 	}
 	l.tokens <- token
-	l.TokenPosition = l.Position
+	l.TokenPosition = l.NextPosition
 	close(l.tokens)
 	return nil
 }
@@ -200,42 +208,45 @@ func (l *Lexer) Emit(typ TokenType, val interface{}) {
 	}
 	l.token.Reset()
 	l.tokens <- token
-	l.TokenPosition = l.Position
+	l.TokenPosition = l.NextPosition
 }
 
 func (l *Lexer) Discard() {
 	l.token.Reset()
-	l.TokenPosition = l.Position
+	l.TokenPosition = l.NextPosition
 }
 
-func (l *Lexer) ReadRune() (r1 rune, w1 int, err1 error) {
+func (l *Lexer) ReadRune() (r rune, w int, err error) {
 	if l.unread > 0 {
-		r, w, pos := l.prev.read()
-		l.Position = pos
+		r, w, l.NextPosition, l.Position = l.prev.read()
 		l.unread--
-		l.token.WriteRune(r)
-		return r, w, nil
-	}
-
-	r, w, err := l.Input.ReadRune()
-	if err != nil {
-		return 0, 0, err
+	} else {
+		r, w, err = l.Input.ReadRune()
+		if err != nil {
+			return 0, 0, err
+		}
+		if r == utf8.RuneError {
+			return 0, 0, fmt.Errorf("bad UTF-8 character")
+		}
+		l.prev.write(r, w, l.NextPosition, l.Position)
 	}
 	l.token.WriteRune(r)
-	l.prev.write(r, w, l.Position)
+	l.Position = l.NextPosition
 	switch r {
 	case '\n':
-		l.Position.Line++
-		l.Position.Column = 0
+		l.NextPosition.Line++
+		l.NextPosition.Column = 1
 	default:
-		l.Position.Column++
+		l.NextPosition.Column++
 	}
 	return r, w, nil
 }
 
 func (l *Lexer) UnreadRune() error {
-	_, w, _ := l.prev.unread()
+	_, w, next, pos := l.prev.unread()
 	l.unread++
+	l.NextPosition = next
+	l.Position = pos
 	l.token.Truncate(l.token.Len() - w)
 	return nil
 }
@@ -259,7 +270,7 @@ func (l *Lexer) AcceptRune(exp rune) (rune, error) {
 	case err != nil:
 		return 0, err
 	case r != exp:
-		return r, fmt.Errorf("expected character %q, got %q", r, exp)
+		return r, fmt.Errorf("expected character %q, got %q", exp, r)
 	}
 	return r, nil
 }
