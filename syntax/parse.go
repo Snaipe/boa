@@ -7,6 +7,7 @@ package syntax
 
 import (
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -57,7 +58,7 @@ type Node struct {
 	Suffix []Token
 }
 
-func (node *Node) text(out *strings.Builder, prefix string, start bool) {
+func (node *Node) text(out io.Writer, prefix string, start bool) {
 	if start {
 		fmt.Fprintf(out, "%s{\n", prefix)
 	}
@@ -69,15 +70,15 @@ func (node *Node) text(out *strings.Builder, prefix string, start bool) {
 			for i, tok := range tokens {
 				fmt.Fprintf(out, "{%v %q %d:%d}", tok.Type, tok.Raw, tok.Start.Line, tok.Start.Column)
 				if i == len(tokens)-1 {
-					out.WriteString("]")
+					io.WriteString(out, "]")
 				} else {
-					out.WriteString(", ")
+					io.WriteString(out, ", ")
 				}
 			}
 		}
 	}
 	if node.Child != nil {
-		out.WriteString(":\n")
+		io.WriteString(out, ":\n")
 		node.Child.text(out, prefix+"  ", true)
 	}
 	if node.Sibling != nil {
