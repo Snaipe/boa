@@ -13,11 +13,16 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"snai.pe/boa/internal/reflectutil"
 )
+
+func noop(lhs, rhs reflect.Value) (bool, error) {
+	return false, nil
+}
 
 func TestStandardSuite(t *testing.T) {
 	filepath.Walk("testdata", func(path string, info os.FileInfo, err error) error {
@@ -96,7 +101,7 @@ func TestStandardSuite(t *testing.T) {
 					if err := json.NewDecoder(jf).Decode(&second); err != nil {
 						t.Fatal(err)
 					}
-					if err := reflectutil.DeepEqual(first, second); err != nil {
+					if err := reflectutil.DeepEqual(first, second, noop); err != nil {
 						t.Fatal("decoded json5 is not equivalent to json:", err)
 					}
 				}

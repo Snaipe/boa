@@ -230,7 +230,7 @@ func TestPopulate(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if err := DeepEqual(actual, expected); err != nil {
+		if err := DeepEqual(actual, expected, nil); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -250,7 +250,7 @@ func TestPopulate(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if err := DeepEqual(act, exp); err != nil {
+		if err := DeepEqual(act, exp, nil); err != nil {
 			t.Log(act)
 			t.Log(exp)
 			t.Fatal(err)
