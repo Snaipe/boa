@@ -72,3 +72,7 @@ func main() {
 
 In the above example, the configuration gets reformatted by the call to Save; each field
 has a documenting comment whose content is the value of the corresponding `help` struct tag.
+
+## Credits
+
+Logo made by [Irina Mir](https://twitter.com/irmirx)
