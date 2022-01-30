@@ -136,7 +136,7 @@ func (m *marshaler) writeKeyPath(s []string) error {
 		if _, err := m.writeKey(e); err != nil {
 			return err
 		}
-		if i != len(s) - 1 {
+		if i != len(s)-1 {
 			if _, err := io.WriteString(m.wr, "."); err != nil {
 				return err
 			}
@@ -435,7 +435,7 @@ func (m *marshaler) MarshalMapValuePost(mv reflect.Value, kv reflectutil.MapEntr
 			if _, err := io.WriteString(m.wr, "\n"); err != nil {
 				return err
 			}
-		} else if i != mv.Len() - 1 {
+		} else if i != mv.Len()-1 {
 			if _, err := io.WriteString(m.wr, ", "); err != nil {
 				return err
 			}

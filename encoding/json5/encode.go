@@ -232,7 +232,6 @@ func (m *marshaler) MarshalNil() error {
 	return err
 }
 
-
 func (m *marshaler) MarshalList(v reflect.Value) (bool, error) {
 	m.depth++
 	_, err := io.WriteString(m.wr, "[")

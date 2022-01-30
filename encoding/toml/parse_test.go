@@ -176,7 +176,7 @@ func TestTOMLStandardSuite(t *testing.T) {
 			}
 		}
 
-		t.Run(testname + "/decode", func(t *testing.T) {
+		t.Run(testname+"/decode", func(t *testing.T) {
 			t.Parallel()
 
 			var actual interface{}
@@ -231,7 +231,7 @@ func TestTOMLStandardSuite(t *testing.T) {
 		}
 
 		// Expect that re-encoding the decoded Node yields exactly the same document
-		t.Run(testname + "/re-encode", func(t *testing.T) {
+		t.Run(testname+"/re-encode", func(t *testing.T) {
 			t.Parallel()
 
 			node, err := newParser(path, bytes.NewReader(txt)).Parse()
@@ -253,7 +253,7 @@ func TestTOMLStandardSuite(t *testing.T) {
 		})
 
 		// Expect that encoding the decoded test case re-decodes to the same value
-		t.Run(testname + "/encode", func(t *testing.T) {
+		t.Run(testname+"/encode", func(t *testing.T) {
 			t.Parallel()
 
 			var out bytes.Buffer

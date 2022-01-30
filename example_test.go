@@ -66,14 +66,14 @@ func ExampleSave_toml() {
 
 		Owner: Person{
 			Name: "Snaipe",
-			DOB:  time.Date(1979, 05, 27, 07, 32, 00, 0, time.FixedZone("", -8 * 60 * 60)),
+			DOB:  time.Date(1979, 05, 27, 07, 32, 00, 0, time.FixedZone("", -8*60*60)),
 		},
 
 		Database: Database{
-			Server: "192.168.1.1",
-			Ports: []uint16{ 8001, 8001, 8002 },
+			Server:        "192.168.1.1",
+			Ports:         []uint16{8001, 8001, 8002},
 			ConnectionMax: 5000,
-			Enabled: true,
+			Enabled:       true,
 		},
 
 		Servers: map[string]Server{

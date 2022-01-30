@@ -143,7 +143,7 @@ func (state *lexerState) lex(l *Lexer) StateFunc {
 			return !isBadControlChar(r) && r != '\n'
 		})
 		if err != io.EOF {
-			if err != nil  {
+			if err != nil {
 				return l.Error(err)
 			}
 			if err := state.acceptNewline(l); err != nil {
