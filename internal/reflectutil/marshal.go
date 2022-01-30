@@ -301,3 +301,37 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 func BytesToString(data []byte) string {
 	return *(*string)(unsafe.Pointer(&data))
 }
+
+// IsValueType returns true if the specified type can be represented as a
+// single value.
+func IsValueType(t reflect.Type) bool {
+	if t.Implements(reflect.TypeOf((*encoding.TextMarshaler)(nil)).Elem()) {
+		return true
+	}
+	switch t {
+	case reflect.TypeOf(big.Int{}),
+		reflect.TypeOf(big.Float{}),
+		reflect.TypeOf(big.Rat{}),
+		reflect.TypeOf([]byte(nil)):
+		return true
+	}
+	return false
+}
+
+// Len returns the "length" of the specified value.
+// If v is a map, slice, or array, it returns its length
+// If v is a struct, it returns the number of fields
+// For everything else, Len returns 1.
+func Len(v reflect.Value) int {
+	for v.Kind() == reflect.Ptr || v.Kind() == reflect.Interface {
+		v = v.Elem()
+	}
+	switch v.Kind() {
+	case reflect.Map, reflect.Slice, reflect.Array:
+		return v.Len()
+	case reflect.Struct:
+		return v.NumField()
+	default:
+		return 1
+	}
+}

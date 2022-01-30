@@ -162,22 +162,22 @@ func TestTOMLStandardSuite(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		t.Run(testname, func(t *testing.T) {
-			t.Parallel()
+		txt, err := ioutil.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-			txt, err := ioutil.ReadFile(path)
+		var expected TomlTest
+		if f, err := os.Open(jsonpath); err == nil {
+			err := json.NewDecoder(f).Decode(&expected)
+			f.Close()
 			if err != nil {
-				t.Fatal(err)
+				t.Fatal("cannot parse valid toml test case:", err)
 			}
+		}
 
-			var expected TomlTest
-			if f, err := os.Open(jsonpath); err == nil {
-				err := json.NewDecoder(f).Decode(&expected)
-				f.Close()
-				if err != nil {
-					t.Fatal("cannot parse valid toml test case:", err)
-				}
-			}
+		t.Run(testname + "/decode", func(t *testing.T) {
+			t.Parallel()
 
 			var actual interface{}
 			err = NewDecoder(bytes.NewReader(txt)).Decode(&actual)
@@ -200,6 +200,80 @@ func TestTOMLStandardSuite(t *testing.T) {
 					t.Log("expected:", expected.value)
 					t.Fatal(err)
 				}
+			}
+		})
+
+		if expected.value == nil {
+			// Do not run encode & re-encode tests for invalid toml cases
+			return nil
+		}
+
+		showContext := func(out []byte) {
+			t.Helper()
+
+			abs, err := filepath.Abs(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Log("original:", abs)
+
+			if out != nil {
+				f, err := ioutil.TempFile("", "test-*"+ext)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer f.Close()
+				if _, err := f.Write(out); err != nil {
+					t.Fatal(err)
+				}
+				t.Log("re-encoded:", f.Name())
+			}
+		}
+
+		// Expect that re-encoding the decoded Node yields exactly the same document
+		t.Run(testname + "/re-encode", func(t *testing.T) {
+			t.Parallel()
+
+			node, err := newParser(path, bytes.NewReader(txt)).Parse()
+			if err != nil {
+				showContext(nil)
+				t.Fatal(err)
+			}
+
+			var out bytes.Buffer
+			if err := NewEncoder(&out).Encode(node); err != nil {
+				showContext(nil)
+				t.Fatal(err)
+			}
+
+			if !bytes.Equal(txt, out.Bytes()) {
+				showContext(out.Bytes())
+				t.Fatal("re-encoded configuration does not match original")
+			}
+		})
+
+		// Expect that encoding the decoded test case re-decodes to the same value
+		t.Run(testname + "/encode", func(t *testing.T) {
+			t.Parallel()
+
+			var out bytes.Buffer
+			if err := NewEncoder(&out).Encode(expected.value); err != nil {
+				showContext(nil)
+				t.Fatal(err)
+			}
+
+			showContext(out.Bytes())
+
+			var actual interface{}
+			if err := NewDecoder(bytes.NewReader(out.Bytes())).Decode(&actual); err != nil {
+				t.Fatal(err)
+			}
+
+			t.Log("actual:", actual)
+			t.Log("expected:", expected.value)
+
+			if err := DeepEqual(actual, expected.value); err != nil {
+				t.Fatal(err)
 			}
 		})
 

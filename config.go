@@ -61,6 +61,8 @@ func Save(path string, v interface{}) error {
 	switch ext {
 	case ".json", ".json5":
 		encoder = json5.NewEncoder(f)
+	case ".toml":
+		encoder = toml.NewEncoder(f)
 	default:
 		return fmt.Errorf("no known encoder for file extension %q", ext)
 	}
