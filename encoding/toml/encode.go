@@ -354,11 +354,32 @@ func (m *marshaler) MarshalMapPost(v reflect.Value, kvs []reflectutil.MapEntry) 
 	return nil
 }
 
+func (m *marshaler) writeComment(comments []string, depth int) error {
+	for _, comment := range comments {
+		if err := m.writeIndent(m.indent, depth); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(m.wr, "# "); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(m.wr, comment); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(m.wr, "\n"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (m *marshaler) MarshalMapKey(mv reflect.Value, kv reflectutil.MapEntry, i int) error {
 	m.path = append(m.path, kv.Key)
 	v := kv.Value
 
 	if m.valdepth > 0 || isValueType(v.Type()) {
+		if err := m.writeComment(kv.Options.Help, m.depth-1); err != nil {
+			return err
+		}
 		if err := m.writeIndent(m.indent, m.depth-1); err != nil {
 			return err
 		}
@@ -373,6 +394,9 @@ func (m *marshaler) MarshalMapKey(mv reflect.Value, kv reflectutil.MapEntry, i i
 			if _, err := io.WriteString(m.wr, "\n"); err != nil {
 				return err
 			}
+		}
+		if err := m.writeComment(kv.Options.Help, m.depth); err != nil {
+			return err
 		}
 		if err := m.writeIndent(m.indent, m.depth); err != nil {
 			return err
@@ -424,11 +448,13 @@ func (m *marshaler) MarshalMapValuePost(mv reflect.Value, kv reflectutil.MapEntr
 	return nil
 }
 
-func (m *marshaler) ParseStructTag(tag reflect.StructTag) (string, bool) {
+func (m *marshaler) ParseStructTag(tag reflect.StructTag) (reflectutil.FieldOpts, bool) {
+	var opts reflectutil.FieldOpts
 	if tomltag, ok := reflectutil.LookupTag(tag, "toml", true); ok {
-		return tomltag.Value, true
+		opts.Name = tomltag.Value
+		return opts, true
 	}
-	return "", false
+	return opts, false
 }
 
 func (m *marshaler) MarshalNode(node *syntax.Node) error {

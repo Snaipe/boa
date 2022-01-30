@@ -21,7 +21,7 @@ func LookupTag(tag reflect.StructTag, key string, options bool) (Tag, bool) {
 	s := string(tag)
 	for {
 		i := strings.IndexFunc(s, func(r rune) bool {
-			return r != ' '
+			return !unicode.IsSpace(r)
 		})
 		if i == -1 {
 			break
@@ -30,10 +30,10 @@ func LookupTag(tag reflect.StructTag, key string, options bool) (Tag, bool) {
 			return !unicode.In(r, unicode.L, unicode.Nd)
 		})
 		if end == -1 {
-			end = len(s) - 1
+			end = len(s)
 		}
 		name := s[i:end]
-		i = end + 1
+		i = end
 		if i >= len(s) {
 			if s[i:] == key {
 				return Tag{Key: s[i:]}, true
@@ -44,14 +44,15 @@ func LookupTag(tag reflect.StructTag, key string, options bool) (Tag, bool) {
 		case ':':
 			i++
 		case ' ':
-			continue
+			//continue
+			return Tag{}, false
 		default:
 			return Tag{}, false
 		}
 		if s[i] != '"' {
 			return Tag{}, false
 		}
-		s = s[i:]
+		s = s[i+1:]
 
 		end = strings.IndexByte(s, '"')
 		if end == -1 {

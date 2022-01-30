@@ -304,6 +304,17 @@ func (m *marshaler) MarshalMapKey(mv reflect.Value, kv reflectutil.MapEntry, i i
 	if err := m.writeNewline(); err != nil {
 		return err
 	}
+	for _, comment := range kv.Options.Help {
+		if _, err := io.WriteString(m.wr, "// "); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(m.wr, comment); err != nil {
+			return err
+		}
+		if err := m.writeNewline(); err != nil {
+			return err
+		}
+	}
 	if _, err := m.writeKey(kv.Key); err != nil {
 		return err
 	}
@@ -324,11 +335,13 @@ func (m *marshaler) MarshalMapValuePost(mv reflect.Value, kv reflectutil.MapEntr
 	return nil
 }
 
-func (m *marshaler) ParseStructTag(tag reflect.StructTag) (string, bool) {
+func (m *marshaler) ParseStructTag(tag reflect.StructTag) (reflectutil.FieldOpts, bool) {
+	var opts reflectutil.FieldOpts
 	if jsontag, ok := reflectutil.LookupTag(tag, "json", true); ok {
-		return jsontag.Value, true
+		opts.Name = jsontag.Value
+		return opts, true
 	}
-	return "", false
+	return opts, false
 }
 
 func (m *marshaler) MarshalNode(node *syntax.Node) error {

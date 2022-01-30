@@ -13,14 +13,21 @@ import (
 	"math/big"
 	"reflect"
 	"sort"
+	"strings"
 	"unsafe"
 
 	. "snai.pe/boa/encoding"
 )
 
+type FieldOpts struct {
+	Name string
+	Help []string
+}
+
 type MapEntry struct {
-	Key   string
-	Value reflect.Value
+	Key     string
+	Value   reflect.Value
+	Options FieldOpts
 }
 
 type Stringifier interface {
@@ -28,7 +35,7 @@ type Stringifier interface {
 }
 
 type StructTagParser interface {
-	ParseStructTag(tag reflect.StructTag) (string, bool)
+	ParseStructTag(tag reflect.StructTag) (FieldOpts, bool)
 }
 
 type Marshaler interface {
@@ -244,21 +251,32 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 		for i := 0; i < l; i++ {
 			field := typ.Field(i)
 
+			var opts FieldOpts
 			name := convention.Format(field.Name)
 			if parser, ok := marshaler.(StructTagParser); ok {
-				if tag, ok := parser.ParseStructTag(field.Tag); ok {
-					name = tag
+				if opts, ok = parser.ParseStructTag(field.Tag); ok && opts.Name != "" {
+					name = opts.Name
 				}
 			}
 			if nametag, ok := LookupTag(field.Tag, "name", false); ok {
 				name = nametag.Value
+			}
+			if helptag, ok := LookupTag(field.Tag, "help", false); ok {
+				help := strings.TrimSpace(helptag.Value)
+				if help != "" {
+					lines := strings.Split(help, "\n")
+					for i, l := range lines {
+						lines[i] = strings.TrimSpace(l)
+					}
+					opts.Help = lines
+				}
 			}
 
 			elem := val.FieldByIndex(field.Index)
 			for elem.Kind() == reflect.Interface && !elem.IsNil() {
 				elem = elem.Elem()
 			}
-			kvs[i] = MapEntry{Key: name, Value: elem}
+			kvs[i] = MapEntry{Key: name, Value: elem, Options: opts}
 		}
 
 		if ok, err := marshaler.MarshalMap(val, kvs); ok || err != nil {
