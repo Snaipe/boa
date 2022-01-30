@@ -43,9 +43,13 @@ func ExampleSave_toml() {
 	}
 
 	type Database struct {
-		Server        string
-		Ports         []uint16
-		ConnectionMax int
+		Server string `help:"Database endpoint; can be one of:
+						* IPv4
+						* IPv6
+						* DNS host name."`
+
+		Ports         []uint16 `help:"Database ports, in the range [1, 65535)."`
+		ConnectionMax int      `help:"Maximum number of connections."`
 		Enabled       bool
 	}
 
@@ -58,7 +62,7 @@ func ExampleSave_toml() {
 		Title    string
 		Owner    Person
 		Database Database
-		Servers  map[string]Server
+		Servers  map[string]Server `help:"Set of servers. Each server has a name, an IP, and a datacenter name."`
 	}
 
 	config := Config{
@@ -105,15 +109,22 @@ func ExampleSave_toml() {
 	// dob = 1979-05-27T07:32:00-08:00
 	//
 	// [database]
+	// # Database endpoint; can be one of:
+	// # * IPv4
+	// # * IPv6
+	// # * DNS host name.
 	// server = "192.168.1.1"
+	// # Database ports, in the range [1, 65535).
 	// ports = [
 	//   8001,
 	//   8001,
 	//   8002,
 	// ]
+	// # Maximum number of connections.
 	// connection_max = 5000
 	// enabled = true
 	//
+	// # Set of servers. Each server has a name, an IP, and a datacenter name.
 	// [servers]
 	//
 	//   [servers.alpha]
@@ -123,4 +134,107 @@ func ExampleSave_toml() {
 	//   [servers.beta]
 	//   ip = "10.0.0.2"
 	//   dc = "eqdc10"
+}
+
+func ExampleSave_json5() {
+
+	type Person struct {
+		Name  string
+		Email string
+	}
+
+	type Database struct {
+		Server string `help:"Database endpoint; can be one of:
+						* IPv4
+						* IPv6
+						* DNS host name."`
+
+		Ports         []uint16 `help:"Database ports, in the range [1, 65535)."`
+		ConnectionMax int      `help:"Maximum number of connections."`
+		Enabled       bool
+	}
+
+	type Server struct {
+		IP string
+		DC string
+	}
+
+	type Config struct {
+		Title    string
+		Owner    Person
+		Database Database
+		Servers  map[string]Server `help:"Set of servers. Each server has a name, an IP, and a datacenter name."`
+	}
+
+	config := Config{
+		Title: "JSON5 Example",
+
+		Owner: Person{
+			Name:  "Snaipe",
+			Email: "me@snai.pe",
+		},
+
+		Database: Database{
+			Server:        "192.168.1.1",
+			Ports:         []uint16{8001, 8001, 8002},
+			ConnectionMax: 5000,
+			Enabled:       true,
+		},
+
+		Servers: map[string]Server{
+			"alpha": Server{
+				IP: "10.0.0.1",
+				DC: "eqdc10",
+			},
+			"beta": Server{
+				IP: "10.0.0.2",
+				DC: "eqdc10",
+			},
+		},
+	}
+
+	if err := boa.Save("testdata/example_save.json5", config); err != nil {
+		log.Fatalln(err)
+	}
+
+	out, err := ioutil.ReadFile("testdata/example_save.json5")
+	if err != nil {
+		log.Fatalln(err)
+	}
+	os.Stdout.Write(out)
+
+	// Output: {
+	//   title: "JSON5 Example",
+	//   owner: {
+	//     name: "Snaipe",
+	//     email: "me@snai.pe",
+	//   },
+	//   database: {
+	//     // Database endpoint; can be one of:
+	//     // * IPv4
+	//     // * IPv6
+	//     // * DNS host name.
+	//     server: "192.168.1.1",
+	//     // Database ports, in the range [1, 65535).
+	//     ports: [
+	//       8001,
+	//       8001,
+	//       8002,
+	//     ],
+	//     // Maximum number of connections.
+	//     connectionMax: 5000,
+	//     enabled: true,
+	//   },
+	//   // Set of servers. Each server has a name, an IP, and a datacenter name.
+	//   servers: {
+	//     alpha: {
+	//       ip: "10.0.0.1",
+	//       dc: "eqdc10",
+	//     },
+	//     beta: {
+	//       ip: "10.0.0.2",
+	//       dc: "eqdc10",
+	//     },
+	//   },
+	// }
 }
