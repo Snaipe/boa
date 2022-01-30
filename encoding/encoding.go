@@ -6,6 +6,7 @@
 package encoding
 
 import (
+	"encoding"
 	"fmt"
 
 	"snai.pe/boa/syntax"
@@ -37,3 +38,10 @@ func (e *LoadError) Error() string {
 func (e *LoadError) Unwrap() error {
 	return e.Err
 }
+
+// Alias some types from the standard encoding library for convenience
+
+type (
+	TextMarshaler   = encoding.TextMarshaler
+	TextUnmarshaler = encoding.TextUnmarshaler
+)
