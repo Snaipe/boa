@@ -283,13 +283,13 @@ func (m *marshaler) Stringify(v reflect.Value) (string, bool, error) {
 	return "", false, nil
 }
 
-func (m *marshaler) MarshalMap(v reflect.Value) (bool, error) {
+func (m *marshaler) MarshalMap(v reflect.Value, kvs []reflectutil.MapEntry) (bool, error) {
 	m.depth++
 	_, err := io.WriteString(m.wr, "{")
 	return false, err
 }
 
-func (m *marshaler) MarshalMapPost(v reflect.Value) error {
+func (m *marshaler) MarshalMapPost(v reflect.Value, kvs []reflectutil.MapEntry) error {
 	m.depth--
 	if v.Len() > 0 {
 		if err := m.writeNewline(); err != nil {
@@ -300,22 +300,22 @@ func (m *marshaler) MarshalMapPost(v reflect.Value) error {
 	return err
 }
 
-func (m *marshaler) MarshalMapKey(mv reflect.Value, k string) error {
+func (m *marshaler) MarshalMapKey(mv reflect.Value, kv reflectutil.MapEntry, i int) error {
 	if err := m.writeNewline(); err != nil {
 		return err
 	}
-	if _, err := m.writeKey(k); err != nil {
+	if _, err := m.writeKey(kv.Key); err != nil {
 		return err
 	}
 	_, err := io.WriteString(m.wr, ": ")
 	return err
 }
 
-func (m *marshaler) MarshalMapValue(mv, v reflect.Value, k string, i int) (bool, error) {
+func (m *marshaler) MarshalMapValue(mv reflect.Value, kv reflectutil.MapEntry, i int) (bool, error) {
 	return false, nil
 }
 
-func (m *marshaler) MarshalMapValuePost(mv, v reflect.Value, k string, i int) error {
+func (m *marshaler) MarshalMapValuePost(mv reflect.Value, kv reflectutil.MapEntry, i int) error {
 	if i != mv.Len()-1 || !m.json {
 		if _, err := io.WriteString(m.wr, ","); err != nil {
 			return err

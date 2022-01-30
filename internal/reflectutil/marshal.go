@@ -18,6 +18,11 @@ import (
 	. "snai.pe/boa/encoding"
 )
 
+type MapEntry struct {
+	Key   string
+	Value reflect.Value
+}
+
 type Stringifier interface {
 	Stringify(v reflect.Value) (string, bool, error)
 }
@@ -30,9 +35,9 @@ type Marshaler interface {
 	MarshalValue(v reflect.Value) (bool, error)
 	MarshalList(v reflect.Value) (bool, error)
 	MarshalListElem(l, v reflect.Value, i int) (bool, error)
-	MarshalMap(v reflect.Value) (bool, error)
-	MarshalMapKey(mv reflect.Value, k string) error
-	MarshalMapValue(mv, v reflect.Value, k string, i int) (bool, error)
+	MarshalMap(v reflect.Value, kvs []MapEntry) (bool, error)
+	MarshalMapKey(mv reflect.Value, kv MapEntry, i int) error
+	MarshalMapValue(mv reflect.Value, kv MapEntry, i int) (bool, error)
 
 	MarshalBool(v bool) error
 	MarshalString(v string) error
@@ -48,11 +53,11 @@ type PostListElemMarshaler interface {
 }
 
 type PostMapMarshaler interface {
-	MarshalMapPost(v reflect.Value) error
+	MarshalMapPost(v reflect.Value, kvs []MapEntry) error
 }
 
 type PostMapValueMarshaler interface {
-	MarshalMapValuePost(mv, v reflect.Value, k string, i int) error
+	MarshalMapValuePost(mv reflect.Value, kv MapEntry, i int) error
 }
 
 type NaNMarshaler interface {
@@ -172,19 +177,19 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 		return nil
 
 	case reflect.Map:
-		if ok, err := marshaler.MarshalMap(val); ok || err != nil {
-			return err
-		}
-
-		keys := make([]string, val.Len())
+		kvs := make([]MapEntry, val.Len())
 		for i, k := range val.MapKeys() {
+			v := val.MapIndex(k)
+			for v.Kind() == reflect.Interface && !v.IsNil() {
+				v = v.Elem()
+			}
 			if stringifier, ok := marshaler.(Stringifier); ok {
 				str, ok, err := stringifier.Stringify(k)
 				if err != nil {
 					return err
 				}
 				if ok {
-					keys[i] = str
+					kvs[i] = MapEntry{Key: str, Value: v}
 					continue
 				}
 			}
@@ -194,47 +199,48 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 				var txt []byte
 				txt, err := kval.MarshalText()
 				if err == nil {
-					keys[i] = string(txt)
+					kvs[i] = MapEntry{Key: string(txt), Value: v}
 				}
-			case fmt.Stringer:
-				keys[i] = kval.String()
 			case string:
-				keys[i] = kval
+				kvs[i] = MapEntry{Key: kval, Value: v}
 			default:
 				return fmt.Errorf("unable to marshal %T as object key", kval)
 			}
 		}
-		sort.Strings(keys)
+		sort.Slice(kvs, func(i, j int) bool { return kvs[i].Key < kvs[j].Key })
 
-		for i, k := range keys {
-			if err := marshaler.MarshalMapKey(val, k); err != nil {
+		if ok, err := marshaler.MarshalMap(val, kvs); ok || err != nil {
+			return err
+		}
+
+		for i, kv := range kvs {
+			if err := marshaler.MarshalMapKey(val, kv, i); err != nil {
 				return err
 			}
-			elem := val.MapIndex(reflect.ValueOf(k))
-			if ok, err := marshaler.MarshalMapValue(val, elem, k, i); ok || err != nil {
+			if ok, err := marshaler.MarshalMapValue(val, kv, i); err != nil {
 				return err
+			} else if ok {
+				continue
 			}
-			if err := Marshal(elem, marshaler, convention); err != nil {
+			if err := Marshal(kv.Value, marshaler, convention); err != nil {
 				return err
 			}
 			if post, ok := marshaler.(PostMapValueMarshaler); ok {
-				if err := post.MarshalMapValuePost(val, elem, k, i); err != nil {
+				if err := post.MarshalMapValuePost(val, kv, i); err != nil {
 					return err
 				}
 			}
 		}
 		if post, ok := marshaler.(PostMapMarshaler); ok {
-			if err := post.MarshalMapPost(val); err != nil {
+			if err := post.MarshalMapPost(val, kvs); err != nil {
 				return err
 			}
 		}
 		return nil
 
 	case reflect.Struct:
-		if ok, err := marshaler.MarshalMap(val); ok || err != nil {
-			return err
-		}
 		l := typ.NumField()
+		kvs := make([]MapEntry, l)
 		for i := 0; i < l; i++ {
 			field := typ.Field(i)
 
@@ -248,24 +254,37 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 				name = nametag.Value
 			}
 
-			if err := marshaler.MarshalMapKey(val, name); err != nil {
-				return err
-			}
 			elem := val.FieldByIndex(field.Index)
-			if ok, err := marshaler.MarshalMapValue(val, elem, name, i); ok || err != nil {
+			for elem.Kind() == reflect.Interface && !elem.IsNil() {
+				elem = elem.Elem()
+			}
+			kvs[i] = MapEntry{Key: name, Value: elem}
+		}
+
+		if ok, err := marshaler.MarshalMap(val, kvs); ok || err != nil {
+			return err
+		}
+
+		for i, kv := range kvs {
+			if err := marshaler.MarshalMapKey(val, kv, i); err != nil {
 				return err
 			}
-			if err := Marshal(elem, marshaler, convention); err != nil {
+			if ok, err := marshaler.MarshalMapValue(val, kv, i); err != nil {
+				return err
+			} else if ok {
+				continue
+			}
+			if err := Marshal(kv.Value, marshaler, convention); err != nil {
 				return err
 			}
 			if post, ok := marshaler.(PostMapValueMarshaler); ok {
-				if err := post.MarshalMapValuePost(val, elem, name, i); err != nil {
+				if err := post.MarshalMapValuePost(val, kv, i); err != nil {
 					return err
 				}
 			}
 		}
 		if post, ok := marshaler.(PostMapMarshaler); ok {
-			if err := post.MarshalMapPost(val); err != nil {
+			if err := post.MarshalMapPost(val, kvs); err != nil {
 				return err
 			}
 		}
