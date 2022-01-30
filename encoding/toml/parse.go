@@ -159,6 +159,8 @@ out:
 				delim = TokenDoubleRSquare
 			}
 		case TokenEOF:
+			// Attach any trailing tokens (typically whitespace and comments) to the root value
+			rootval.Suffix = append(rootval.Suffix, key.Tokens...)
 			break out
 		}
 
@@ -171,7 +173,7 @@ out:
 		kpath := key.Value.([]interface{})
 		path := make([]interface{}, 0, len(kpath)*2+len(currentPath))
 
-		suffix := &key.Suffix
+		suffix := &key.Tokens
 
 		switch delim {
 		case TokenEqual:
@@ -315,7 +317,7 @@ out:
 		if token.Type != TokenNewline {
 			return nil, p.Error(token, UnexpectedTokenError{TokenNewline, TokenEOF})
 		}
-		key.Suffix = append(key.Suffix, token)
+		*suffix = append(*suffix, token)
 	}
 
 	document.Child = &rootval
@@ -358,12 +360,13 @@ func (p *parser) Key(token Token, key *Node, delim TokenType) error {
 		if token.Type != TokenDot {
 			return p.Error(token, UnexpectedTokenError{TokenDot, delim})
 		}
+		key.Tokens = append(key.Tokens, token)
 		token, err = p.Next(&key.Tokens, TokenWhitespace)
 		if err != nil {
 			return err
 		}
 	}
-	key.Suffix = append(key.Suffix, token)
+	key.Tokens = append(key.Tokens, token)
 	key.Value = path
 	return nil
 }
@@ -429,7 +432,6 @@ func (p *parser) Object(token Token, node *Node) error {
 
 	key := new(Node)
 	prev := &node.Child
-	last := node
 	for token.Type != TokenRBrace {
 		err := p.Key(token, key, TokenEqual)
 		if err != nil {
@@ -463,9 +465,12 @@ func (p *parser) Object(token Token, node *Node) error {
 		if err != nil {
 			return err
 		}
+
 		switch token.Type {
 		// A key-value pair is always terminated by , or }.
 		case TokenComma:
+			value.Suffix = append(value.Suffix, token)
+
 			key = new(Node)
 			token, err = p.Next(&key.Tokens, allowed...)
 			if err != nil {
@@ -479,9 +484,9 @@ func (p *parser) Object(token Token, node *Node) error {
 		default:
 			return p.Error(token, UnexpectedTokenError{TokenComma, TokenRBrace})
 		}
-		last = value
 	}
-	last.Suffix = append(last.Suffix, token)
+
+	node.Suffix = append(node.Suffix, token)
 	return nil
 }
 

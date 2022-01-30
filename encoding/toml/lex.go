@@ -82,7 +82,11 @@ func (state *lexerState) lex(l *Lexer) StateFunc {
 
 	switch r {
 	case ' ', '\t':
-		l.Discard()
+		_, err := l.AcceptUntil(isSpace)
+		if err != nil && err != io.EOF {
+			return l.Error(err)
+		}
+		l.Emit(TokenWhitespace, nil)
 	case '{':
 		l.Emit(TokenLBrace, nil)
 	case '}':
@@ -138,13 +142,15 @@ func (state *lexerState) lex(l *Lexer) StateFunc {
 		comment, err := l.AcceptUntil(func(r rune) bool {
 			return !isBadControlChar(r) && r != '\n'
 		})
-		if err != nil && err != io.EOF {
-			return l.Error(err)
+		if err != io.EOF {
+			if err != nil  {
+				return l.Error(err)
+			}
+			if err := state.acceptNewline(l); err != nil {
+				return l.Error(err)
+			}
+			l.UnreadRune()
 		}
-		if err := state.acceptNewline(l); err != nil {
-			return l.Error(err)
-		}
-		l.UnreadRune()
 		l.Emit(TokenComment, strings.TrimSpace(comment))
 	case '+', '-', '_', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 		// For the most part, a significant set of valid numbers and dates
@@ -317,9 +323,7 @@ func (state *lexerState) lexString(l *Lexer, delim rune) StateFunc {
 					val.WriteRune(next)
 				case ' ', '\t':
 					// Whitespace is only allowed after a \ before a newline
-					_, err := l.AcceptUntil(func(r rune) bool {
-						return isSpace(r)
-					})
+					l.AcceptUntil(isSpace)
 					r, _, err = l.ReadRune()
 					if err != nil {
 						if err == io.EOF {
