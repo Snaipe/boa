@@ -271,7 +271,14 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 		fields := make(map[string]int, typ.NumField()*2)
 		for i := 0; i < typ.NumField(); i++ {
 			field := typ.Field(i)
-			fields[convention.Format(field.Name)] = i
+			if _, ok := LookupTag(field.Tag, "-", false); ok {
+				continue
+			}
+			if nametag, ok := LookupTag(field.Tag, "name", false); ok {
+				fields[nametag.Value] = i
+			} else {
+				fields[convention.Format(field.Name)] = i
+			}
 		}
 
 		for key := node.Child; key != nil; key = key.Sibling {

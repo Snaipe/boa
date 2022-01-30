@@ -63,6 +63,9 @@ func ExampleSave_toml() {
 		Owner    Person
 		Database Database
 		Servers  map[string]Server `help:"Set of servers. Each server has a name, an IP, and a datacenter name."`
+
+		// This field is ignored
+		Ignored string `-`
 	}
 
 	config := Config{
@@ -164,6 +167,9 @@ func ExampleSave_json5() {
 		Owner    Person
 		Database Database
 		Servers  map[string]Server `help:"Set of servers. Each server has a name, an IP, and a datacenter name."`
+
+		// This field is ignored
+		Ignored string `-`
 	}
 
 	config := Config{
@@ -191,6 +197,8 @@ func ExampleSave_json5() {
 				DC: "eqdc10",
 			},
 		},
+
+		Ignored: "this field is ignored",
 	}
 
 	if err := boa.Save("testdata/example_save.json5", config); err != nil {

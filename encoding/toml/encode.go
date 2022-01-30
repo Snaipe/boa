@@ -451,7 +451,11 @@ func (m *marshaler) MarshalMapValuePost(mv reflect.Value, kv reflectutil.MapEntr
 func (m *marshaler) ParseStructTag(tag reflect.StructTag) (reflectutil.FieldOpts, bool) {
 	var opts reflectutil.FieldOpts
 	if tomltag, ok := reflectutil.LookupTag(tag, "toml", true); ok {
-		opts.Name = tomltag.Value
+		if tomltag.Value == "-" {
+			opts.Ignore = true
+		} else {
+			opts.Name = tomltag.Value
+		}
 		return opts, true
 	}
 	return opts, false

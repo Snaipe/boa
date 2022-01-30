@@ -341,7 +341,11 @@ func (m *marshaler) MarshalMapValuePost(mv reflect.Value, kv reflectutil.MapEntr
 func (m *marshaler) ParseStructTag(tag reflect.StructTag) (reflectutil.FieldOpts, bool) {
 	var opts reflectutil.FieldOpts
 	if jsontag, ok := reflectutil.LookupTag(tag, "json", true); ok {
-		opts.Name = jsontag.Value
+		if opts.Name == "-" {
+			opts.Ignore = true
+		} else {
+			opts.Name = jsontag.Value
+		}
 		return opts, true
 	}
 	return opts, false

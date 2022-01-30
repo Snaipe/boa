@@ -20,8 +20,9 @@ import (
 )
 
 type FieldOpts struct {
-	Name string
-	Help []string
+	Name   string
+	Help   []string
+	Ignore bool
 }
 
 type MapEntry struct {
@@ -248,7 +249,7 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 	case reflect.Struct:
 		l := typ.NumField()
 		kvs := make([]MapEntry, l)
-		for i := 0; i < l; i++ {
+		for i := 0; i < l; {
 			field := typ.Field(i)
 
 			var opts FieldOpts
@@ -257,6 +258,13 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 				if opts, ok = parser.ParseStructTag(field.Tag); ok && opts.Name != "" {
 					name = opts.Name
 				}
+			}
+			if _, ok := LookupTag(field.Tag, "-", false); ok {
+				opts.Ignore = true
+			}
+			if opts.Ignore {
+				l--
+				continue
 			}
 			if nametag, ok := LookupTag(field.Tag, "name", false); ok {
 				name = nametag.Value
@@ -277,7 +285,9 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 				elem = elem.Elem()
 			}
 			kvs[i] = MapEntry{Key: name, Value: elem, Options: opts}
+			i++
 		}
+		kvs = kvs[:l]
 
 		if ok, err := marshaler.MarshalMap(val, kvs); ok || err != nil {
 			return err
