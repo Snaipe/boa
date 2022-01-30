@@ -66,6 +66,10 @@ func ExampleSave_toml() {
 
 		// This field is ignored
 		Ignored string `-`
+
+		ForeignKeys struct {
+			SomeInt int
+		} `naming:"kebab-case" help:"This table has a different naming convention"`
 	}
 
 	config := Config{
@@ -137,6 +141,10 @@ func ExampleSave_toml() {
 	//   [servers.beta]
 	//   ip = "10.0.0.2"
 	//   dc = "eqdc10"
+	//
+	// # This table has a different naming convention
+	// [foreign-keys]
+	// some-int = 0
 }
 
 func ExampleSave_json5() {
@@ -170,6 +178,10 @@ func ExampleSave_json5() {
 
 		// This field is ignored
 		Ignored string `-`
+
+		ForeignKeys struct {
+			SomeInt int
+		} `naming:"kebab-case" help:"This map has a different naming convention"`
 	}
 
 	config := Config{
@@ -243,6 +255,10 @@ func ExampleSave_json5() {
 	//       ip: "10.0.0.2",
 	//       dc: "eqdc10",
 	//     },
+	//   },
+	//   // This map has a different naming convention
+	//   "foreign-keys": {
+	//     "some-int": 0,
 	//   },
 	// }
 }

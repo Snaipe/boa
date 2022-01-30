@@ -90,6 +90,8 @@ func (bc baseConvention) String() string {
 	return bc.name
 }
 
+var conventions = map[string]NamingConvention{}
+
 func camelCase(name string, sep rune, capitalizeFirst bool) baseConvention {
 	runefunc := func(r rune, i int, boundary, upper, wupper bool) (rune, rune) {
 		fn := unicode.ToLower
@@ -102,7 +104,9 @@ func camelCase(name string, sep rune, capitalizeFirst bool) baseConvention {
 		}
 		return fn(r), sc
 	}
-	return baseConvention{name, runefunc}
+	conv := baseConvention{name, runefunc}
+	conventions[name] = conv
+	return conv
 }
 
 func constantCase(name string, sep rune, screaming bool) baseConvention {
@@ -117,5 +121,11 @@ func constantCase(name string, sep rune, screaming bool) baseConvention {
 		}
 		return fn(r), sc
 	}
-	return baseConvention{name, runefunc}
+	conv := baseConvention{name, runefunc}
+	conventions[name] = conv
+	return conv
+}
+
+func NamingConventionByName(name string) NamingConvention {
+	return conventions[name]
 }

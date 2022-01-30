@@ -271,10 +271,15 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 
 	case reflect.Struct:
 
+		type fieldInfo struct {
+			Idx        []int
+			Convention encoding.NamingConvention
+		}
+
 		if node.Type != syntax.NodeMap {
 			return val, newNodeErr(syntax.NodeMap)
 		}
-		fields := make(map[string]int, typ.NumField()*2)
+		fields := make(map[string]fieldInfo, typ.NumField()*2)
 		for i := 0; i < typ.NumField(); i++ {
 			field := typ.Field(i)
 			var opts FieldOpts
@@ -284,16 +289,26 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 			if _, ok := LookupTag(field.Tag, "-", false); ok {
 				opts.Ignore = true
 			}
-			if nametag, ok := LookupTag(field.Tag, "name", false); ok {
-				opts.Name = nametag.Value
-			}
 			if opts.Ignore {
 				continue
 			}
+			if nametag, ok := LookupTag(field.Tag, "name", false); ok {
+				opts.Name = nametag.Value
+			}
+			if naming, ok := LookupTag(field.Tag, "naming", false); ok {
+				conv := encoding.NamingConventionByName(naming.Value)
+				if conv == nil {
+					panic(fmt.Sprintf("unknown naming convention %s", naming.Value))
+				}
+				opts.Naming = conv
+			}
+			if opts.Naming == nil {
+				opts.Naming = convention
+			}
 			if opts.Name != "" {
-				fields[opts.Name] = i
+				fields[opts.Name] = fieldInfo{field.Index, opts.Naming}
 			} else {
-				fields[convention.Format(field.Name)] = i
+				fields[opts.Naming.Format(field.Name)] = fieldInfo{field.Index, opts.Naming}
 			}
 		}
 
@@ -329,14 +344,11 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 				return val, fmt.Errorf("unsupported node type %v", node.Type)
 			}
 
-			fieldidx, ok := fields[fieldname]
-			if !ok {
-				fieldidx, ok = fields[convention.Format(fieldname)]
-			}
+			finfo, ok := fields[fieldname]
 			if !ok {
 				continue
 			}
-			_, err := populate(val.Field(fieldidx), value, convention, append(path, fmt.Sprintf(".%v", typ.Field(fieldidx).Name)), pop)
+			_, err := populate(val.FieldByIndex(finfo.Idx), value, finfo.Convention, append(path, fmt.Sprintf(".%v", typ.FieldByIndex(finfo.Idx).Name)), pop)
 			if err != nil {
 				return val, err
 			}

@@ -23,6 +23,7 @@ type FieldOpts struct {
 	Name   string
 	Help   []string
 	Ignore bool
+	Naming NamingConvention
 }
 
 type MapEntry struct {
@@ -248,12 +249,12 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 
 	case reflect.Struct:
 		l := typ.NumField()
-		kvs := make([]MapEntry, l)
-		for i := 0; i < l; {
+		kvs := make([]MapEntry, 0, l)
+		for i := 0; i < l; i++ {
 			field := typ.Field(i)
 
 			var opts FieldOpts
-			name := convention.Format(field.Name)
+			var name string
 			if parser, ok := marshaler.(StructTagParser); ok {
 				if opts, ok = parser.ParseStructTag(field.Tag); ok && opts.Name != "" {
 					name = opts.Name
@@ -263,7 +264,6 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 				opts.Ignore = true
 			}
 			if opts.Ignore {
-				l--
 				continue
 			}
 			if nametag, ok := LookupTag(field.Tag, "name", false); ok {
@@ -279,15 +279,26 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 					opts.Help = lines
 				}
 			}
+			if naming, ok := LookupTag(field.Tag, "naming", false); ok {
+				conv := NamingConventionByName(naming.Value)
+				if conv == nil {
+					panic(fmt.Sprintf("unknown naming convention %s", naming.Value))
+				}
+				opts.Naming = conv
+			}
+			if opts.Naming == nil {
+				opts.Naming = convention
+			}
+			if name == "" {
+				name = opts.Naming.Format(field.Name)
+			}
 
 			elem := val.FieldByIndex(field.Index)
 			for elem.Kind() == reflect.Interface && !elem.IsNil() {
 				elem = elem.Elem()
 			}
-			kvs[i] = MapEntry{Key: name, Value: elem, Options: opts}
-			i++
+			kvs = append(kvs, MapEntry{Key: name, Value: elem, Options: opts})
 		}
-		kvs = kvs[:l]
 
 		if ok, err := marshaler.MarshalMap(val, kvs); ok || err != nil {
 			return err
@@ -302,7 +313,7 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 			} else if ok {
 				continue
 			}
-			if err := Marshal(kv.Value, marshaler, convention); err != nil {
+			if err := Marshal(kv.Value, marshaler, kv.Options.Naming); err != nil {
 				return err
 			}
 			if post, ok := marshaler.(PostMapValueMarshaler); ok {

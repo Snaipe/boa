@@ -26,11 +26,13 @@ func LookupTag(tag reflect.StructTag, key string, options bool) (Tag, bool) {
 		if i == -1 {
 			break
 		}
-		end := strings.IndexFunc(s, func(r rune) bool {
+		end := strings.IndexFunc(s[i:], func(r rune) bool {
 			return !unicode.In(r, unicode.L, unicode.Nd) && r != '-' && r != '_'
 		})
 		if end == -1 {
 			end = len(s)
+		} else {
+			end += i
 		}
 		name := s[i:end]
 		i = end
