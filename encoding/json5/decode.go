@@ -17,6 +17,31 @@ import (
 	"snai.pe/boa/internal/reflectutil"
 )
 
+type populator struct {
+	structTagParser
+}
+
+func (populator) PopulateValue(val reflect.Value, node *Node) (bool, error) {
+	switch unmarshaler := val.Interface().(type) {
+	case json.Unmarshaler:
+		data, err := MarshalJSON(node)
+		if err != nil {
+			return false, err
+		}
+		if err := unmarshaler.UnmarshalJSON(data); err != nil {
+			return false, err
+		}
+	default:
+		return false, nil
+	}
+	return true, nil
+}
+
+var (
+	_ reflectutil.StructTagParser = (*populator)(nil)
+	_ reflectutil.Populator       = (*populator)(nil)
+)
+
 type Decoder struct {
 	parser *parser
 }
@@ -49,21 +74,7 @@ func (decoder *Decoder) Decode(v interface{}) error {
 		panic("json5.Decoder.Decode: must pass in pointer value")
 	}
 
-	err = reflectutil.Populate(ptr.Elem(), root.Child, encoding.CamelCase, func(val reflect.Value, node *Node) (bool, error) {
-		switch unmarshaler := val.Interface().(type) {
-		case json.Unmarshaler:
-			data, err := MarshalJSON(node)
-			if err != nil {
-				return false, err
-			}
-			if err := unmarshaler.UnmarshalJSON(data); err != nil {
-				return false, err
-			}
-		default:
-			return false, nil
-		}
-		return true, nil
-	})
+	err = reflectutil.Populate(ptr.Elem(), root.Child, encoding.CamelCase, populator{})
 	if e, ok := err.(*encoding.LoadError); ok {
 		e.Filename = decoder.parser.name
 	}

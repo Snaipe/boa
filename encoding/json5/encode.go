@@ -47,6 +47,8 @@ type runeWriter interface {
 }
 
 type marshaler struct {
+	structTagParser
+
 	// state
 	wr      io.Writer
 	depth   int
@@ -338,19 +340,6 @@ func (m *marshaler) MarshalMapValuePost(mv reflect.Value, kv reflectutil.MapEntr
 	return nil
 }
 
-func (m *marshaler) ParseStructTag(tag reflect.StructTag) (reflectutil.FieldOpts, bool) {
-	var opts reflectutil.FieldOpts
-	if jsontag, ok := reflectutil.LookupTag(tag, "json", true); ok {
-		if opts.Name == "-" {
-			opts.Ignore = true
-		} else {
-			opts.Name = jsontag.Value
-		}
-		return opts, true
-	}
-	return opts, false
-}
-
 func (m *marshaler) MarshalNode(node *syntax.Node) error {
 	for _, tok := range node.Tokens {
 		if m.json {
@@ -442,6 +431,21 @@ func (m *marshaler) MarshalNodePost(node *syntax.Node) error {
 		}
 	}
 	return nil
+}
+
+type structTagParser struct{}
+
+func (structTagParser) ParseStructTag(tag reflect.StructTag) (reflectutil.FieldOpts, bool) {
+	var opts reflectutil.FieldOpts
+	if jsontag, ok := reflectutil.LookupTag(tag, "json", true); ok {
+		if opts.Name == "-" {
+			opts.Ignore = true
+		} else {
+			opts.Name = jsontag.Value
+		}
+		return opts, true
+	}
+	return opts, false
 }
 
 var (

@@ -47,6 +47,8 @@ func (encoder *Encoder) Option(opts ...EncoderOption) *Encoder {
 }
 
 type marshaler struct {
+	structTagParser
+
 	// state
 	wr        io.Writer
 	first     bool
@@ -448,19 +450,6 @@ func (m *marshaler) MarshalMapValuePost(mv reflect.Value, kv reflectutil.MapEntr
 	return nil
 }
 
-func (m *marshaler) ParseStructTag(tag reflect.StructTag) (reflectutil.FieldOpts, bool) {
-	var opts reflectutil.FieldOpts
-	if tomltag, ok := reflectutil.LookupTag(tag, "toml", true); ok {
-		if tomltag.Value == "-" {
-			opts.Ignore = true
-		} else {
-			opts.Name = tomltag.Value
-		}
-		return opts, true
-	}
-	return opts, false
-}
-
 func (m *marshaler) MarshalNode(node *syntax.Node) error {
 	for _, tok := range node.Tokens {
 		if _, err := io.WriteString(m.wr, tok.Raw); err != nil {
@@ -490,6 +479,21 @@ var (
 	_ reflectutil.NaNMarshaler          = (*marshaler)(nil)
 	_ reflectutil.InfMarshaler          = (*marshaler)(nil)
 )
+
+type structTagParser struct{}
+
+func (structTagParser) ParseStructTag(tag reflect.StructTag) (reflectutil.FieldOpts, bool) {
+	var opts reflectutil.FieldOpts
+	if tomltag, ok := reflectutil.LookupTag(tag, "toml", true); ok {
+		if tomltag.Value == "-" {
+			opts.Ignore = true
+		} else {
+			opts.Name = tomltag.Value
+		}
+		return opts, true
+	}
+	return opts, false
+}
 
 func (encoder *Encoder) Encode(v interface{}) error {
 	if node, ok := v.(*syntax.Node); ok {

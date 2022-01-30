@@ -17,14 +17,18 @@ import (
 	"snai.pe/boa/syntax"
 )
 
+type Populator interface {
+	PopulateValue(val reflect.Value, node *syntax.Node) (bool, error)
+}
+
 type PopulateFunc func(val reflect.Value, node *syntax.Node) (bool, error)
 
-func Populate(val reflect.Value, node *syntax.Node, convention encoding.NamingConvention, fn PopulateFunc) error {
-	_, err := populate(val, node, convention, nil, fn)
+func Populate(val reflect.Value, node *syntax.Node, convention encoding.NamingConvention, pop Populator) error {
+	_, err := populate(val, node, convention, nil, pop)
 	return err
 }
 
-func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingConvention, path []string, fn PopulateFunc) (reflect.Value, error) {
+func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingConvention, path []string, pop Populator) (reflect.Value, error) {
 	typ := val.Type()
 
 	target := func() string {
@@ -89,7 +93,7 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 		}
 
 		if recurse {
-			_, err := populate(rval, node, convention, path, fn)
+			_, err := populate(rval, node, convention, path, pop)
 			if err != nil {
 				return rval, err
 			}
@@ -97,8 +101,10 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 		return rval, nil
 	}
 
-	if ok, err := fn(val, node); err != nil || ok {
-		return val, newErr(err)
+	if pop != nil {
+		if ok, err := pop.PopulateValue(val, node); err != nil || ok {
+			return val, newErr(err)
+		}
 	}
 
 	switch rval := val.Interface().(type) {
@@ -134,7 +140,7 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 		if val.IsNil() {
 			val.Set(reflect.New(typ.Elem()))
 		}
-		if _, err := populate(val.Elem(), node, convention, path, fn); err != nil {
+		if _, err := populate(val.Elem(), node, convention, path, pop); err != nil {
 			return val, err
 		}
 
@@ -210,7 +216,7 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 			if idx >= val.Len() && kind == reflect.Array {
 				return val, newErr(fmt.Errorf("cannot assign %v to index %d: index out of bounds", node.Value, idx))
 			}
-			if _, err := populate(val.Index(idx), n, convention, append(path, fmt.Sprintf("[%d]", idx)), fn); err != nil {
+			if _, err := populate(val.Index(idx), n, convention, append(path, fmt.Sprintf("[%d]", idx)), pop); err != nil {
 				return val, err
 			}
 			idx++
@@ -240,7 +246,7 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 					return val, err
 				}
 			} else {
-				rkey, err := populate(reflect.New(typ.Key()).Elem(), key, convention, path, fn)
+				rkey, err := populate(reflect.New(typ.Key()).Elem(), key, convention, path, pop)
 				if err != nil {
 					return val, err
 				}
@@ -252,7 +258,7 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 				}
 				set := !mval.IsValid()
 
-				rval, err = populate(rval, value, convention, append(path, fmt.Sprintf("[%v]", rkey.Interface())), fn)
+				rval, err = populate(rval, value, convention, append(path, fmt.Sprintf("[%v]", rkey.Interface())), pop)
 				if err != nil {
 					return val, err
 				}
@@ -271,11 +277,21 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 		fields := make(map[string]int, typ.NumField()*2)
 		for i := 0; i < typ.NumField(); i++ {
 			field := typ.Field(i)
+			var opts FieldOpts
+			if parser, ok := pop.(StructTagParser); ok {
+				opts, _ = parser.ParseStructTag(field.Tag)
+			}
 			if _, ok := LookupTag(field.Tag, "-", false); ok {
-				continue
+				opts.Ignore = true
 			}
 			if nametag, ok := LookupTag(field.Tag, "name", false); ok {
-				fields[nametag.Value] = i
+				opts.Name = nametag.Value
+			}
+			if opts.Ignore {
+				continue
+			}
+			if opts.Name != "" {
+				fields[opts.Name] = i
 			} else {
 				fields[convention.Format(field.Name)] = i
 			}
@@ -320,7 +336,7 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 			if !ok {
 				continue
 			}
-			_, err := populate(val.Field(fieldidx), value, convention, append(path, fmt.Sprintf(".%v", typ.Field(fieldidx).Name)), fn)
+			_, err := populate(val.Field(fieldidx), value, convention, append(path, fmt.Sprintf(".%v", typ.Field(fieldidx).Name)), pop)
 			if err != nil {
 				return val, err
 			}
