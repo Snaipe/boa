@@ -59,7 +59,12 @@ type marshaler struct {
 }
 
 func (m *marshaler) quote(in string, delim rune, json bool) (int, error) {
-	written := 0
+
+	written, err := io.WriteString(m.wr, string(delim))
+	if err != nil {
+		return written, err
+	}
+
 	for _, r := range in {
 		switch r {
 		case delim, '\n', '\r', parSep, lineSep:
@@ -100,6 +105,13 @@ func (m *marshaler) quote(in string, delim rune, json bool) (int, error) {
 			return written, err
 		}
 	}
+
+	n, err := io.WriteString(m.wr, string(delim))
+	written += n
+	if err != nil {
+		return written, err
+	}
+
 	return written, nil
 }
 
@@ -116,25 +128,7 @@ func (m *marshaler) writeKey(s string) (int, error) {
 		return io.WriteString(m.wr, s)
 	}
 
-	written := 0
-	n, err := io.WriteString(m.wr, "\"")
-	written += n
-	if err != nil {
-		return written, err
-	}
-
-	n, err = m.quote(s, '"', false)
-	written += n
-	if err != nil {
-		return written, err
-	}
-
-	n, err = io.WriteString(m.wr, "\"")
-	written += n
-	if err != nil {
-		return written, err
-	}
-	return written, nil
+	return m.quote(s, '"', false)
 }
 
 func (m *marshaler) writeNewline() error {
@@ -234,14 +228,14 @@ func (m *marshaler) MarshalNil() error {
 
 func (m *marshaler) MarshalList(v reflect.Value) (bool, error) {
 	m.depth++
-	_, err := io.WriteString(m.wr, "[")
+	_, err := io.WriteString(m.wr, "[\n")
 	return false, err
 }
 
 func (m *marshaler) MarshalListPost(v reflect.Value) error {
 	m.depth--
 	if v.Len() > 0 {
-		if err := m.writeNewline(); err != nil {
+		if err := m.writeIndent(m.indent, m.depth); err != nil {
 			return err
 		}
 	}
@@ -250,7 +244,7 @@ func (m *marshaler) MarshalListPost(v reflect.Value) error {
 }
 
 func (m *marshaler) MarshalListElem(l, v reflect.Value, i int) (bool, error) {
-	return false, m.writeNewline()
+	return false, m.writeIndent(m.indent, m.depth)
 }
 
 func (m *marshaler) MarshalListElemPost(l, v reflect.Value, i int) error {
@@ -258,6 +252,9 @@ func (m *marshaler) MarshalListElemPost(l, v reflect.Value, i int) error {
 		if _, err := io.WriteString(m.wr, ","); err != nil {
 			return err
 		}
+	}
+	if _, err := io.WriteString(m.wr, "\n"); err != nil {
+		return err
 	}
 	return nil
 }
@@ -284,23 +281,30 @@ func (m *marshaler) Stringify(v reflect.Value) (string, bool, error) {
 
 func (m *marshaler) MarshalMap(v reflect.Value, kvs []reflectutil.MapEntry) (bool, error) {
 	m.depth++
-	_, err := io.WriteString(m.wr, "{")
+	_, err := io.WriteString(m.wr, "{\n")
 	return false, err
 }
 
 func (m *marshaler) MarshalMapPost(v reflect.Value, kvs []reflectutil.MapEntry) error {
 	m.depth--
-	if v.Len() > 0 {
-		if err := m.writeNewline(); err != nil {
+	if reflectutil.Len(v) > 0 {
+		if err := m.writeIndent(m.indent, m.depth); err != nil {
 			return err
 		}
 	}
-	_, err := io.WriteString(m.wr, "}")
-	return err
+	if _, err := io.WriteString(m.wr, "}"); err != nil {
+		return err
+	}
+	if m.depth == 0 {
+		if _, err := io.WriteString(m.wr, "\n"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (m *marshaler) MarshalMapKey(mv reflect.Value, kv reflectutil.MapEntry, i int) error {
-	if err := m.writeNewline(); err != nil {
+	if err := m.writeIndent(m.indent, m.depth); err != nil {
 		return err
 	}
 	for _, comment := range kv.Options.Help {
@@ -326,8 +330,8 @@ func (m *marshaler) MarshalMapValue(mv reflect.Value, kv reflectutil.MapEntry, i
 }
 
 func (m *marshaler) MarshalMapValuePost(mv reflect.Value, kv reflectutil.MapEntry, i int) error {
-	if i != mv.Len()-1 || !m.json {
-		if _, err := io.WriteString(m.wr, ","); err != nil {
+	if i != reflectutil.Len(mv)-1 || !m.json {
+		if _, err := io.WriteString(m.wr, ",\n"); err != nil {
 			return err
 		}
 	}
