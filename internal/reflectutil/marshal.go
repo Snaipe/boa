@@ -8,8 +8,12 @@ package reflectutil
 import (
 	"encoding"
 	"fmt"
+	"go/constant"
+	"math"
+	"math/big"
 	"reflect"
 	"sort"
+	"unsafe"
 
 	. "snai.pe/boa/encoding"
 )
@@ -24,12 +28,15 @@ type StructTagParser interface {
 
 type Marshaler interface {
 	MarshalValue(v reflect.Value) (bool, error)
-	MarshalString(v reflect.Value) error
 	MarshalList(v reflect.Value) (bool, error)
 	MarshalListElem(l, v reflect.Value, i int) (bool, error)
 	MarshalMap(v reflect.Value) (bool, error)
 	MarshalMapKey(mv reflect.Value, k string) error
 	MarshalMapValue(mv, v reflect.Value, k string, i int) (bool, error)
+
+	MarshalBool(v bool) error
+	MarshalString(v string) error
+	MarshalNumber(v constant.Value) error
 }
 
 type PostListMarshaler interface {
@@ -48,6 +55,18 @@ type PostMapValueMarshaler interface {
 	MarshalMapValuePost(mv, v reflect.Value, k string, i int) error
 }
 
+type NaNMarshaler interface {
+	MarshalNaN(nan float64) error
+}
+
+type InfMarshaler interface {
+	MarshalInf(inf float64) error
+}
+
+type NilMarshaler interface {
+	MarshalNil() error
+}
+
 func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention) error {
 	typ := val.Type()
 
@@ -56,25 +75,74 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 	}
 
 	switch m := val.Interface().(type) {
+	case *big.Float:
+		return marshaler.MarshalNumber(constant.Make(m))
+	case big.Float:
+		return marshaler.MarshalNumber(constant.Make(&m))
+	case *big.Rat:
+		return marshaler.MarshalNumber(constant.Make(m))
+	case big.Rat:
+		return marshaler.MarshalNumber(constant.Make(&m))
+	case *big.Int:
+		return marshaler.MarshalNumber(constant.Make(m))
+	case big.Int:
+		return marshaler.MarshalNumber(constant.Make(&m))
 	case encoding.TextMarshaler:
 		txt, err := m.MarshalText()
 		if err != nil {
 			return err
 		}
-		if err := marshaler.MarshalString(reflect.ValueOf(txt)); err != nil {
-			return err
-		}
+		return marshaler.MarshalString(BytesToString(txt))
 	case []byte:
-		if err := marshaler.MarshalString(val); err != nil {
-			return err
-		}
+		return marshaler.MarshalString(BytesToString(m))
 	}
 
 	switch kind := val.Kind(); kind {
-	case reflect.String:
-		if err := marshaler.MarshalString(val); err != nil {
-			return err
+	case reflect.Interface:
+		if val.Elem().Kind() == reflect.Invalid {
+			// This is a nil interface and we therefore can't marshal it
+			break
 		}
+		fallthrough
+	case reflect.Ptr:
+		if val.IsNil() {
+			m, ok := marshaler.(NilMarshaler)
+			if !ok {
+				return fmt.Errorf("format cannot encode nil")
+			}
+			return m.MarshalNil()
+		}
+		return Marshal(val.Elem(), marshaler, convention)
+
+	case reflect.Bool:
+		return marshaler.MarshalBool(val.Bool())
+
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return marshaler.MarshalNumber(constant.MakeInt64(val.Int()))
+
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return marshaler.MarshalNumber(constant.MakeUint64(val.Uint()))
+
+	case reflect.Float32, reflect.Float64:
+		flt := val.Float()
+		switch {
+		case math.IsNaN(flt):
+			m, ok := marshaler.(NaNMarshaler)
+			if !ok {
+				return fmt.Errorf("format cannot encode NaN")
+			}
+			return m.MarshalNaN(flt)
+		case math.IsInf(flt, 0):
+			m, ok := marshaler.(InfMarshaler)
+			if !ok {
+				return fmt.Errorf("format cannot encode infinity")
+			}
+			return m.MarshalInf(flt)
+		}
+		return marshaler.MarshalNumber(constant.MakeFloat64(flt))
+
+	case reflect.String:
+		return marshaler.MarshalString(val.String())
 
 	case reflect.Array, reflect.Slice:
 		if ok, err := marshaler.MarshalList(val); ok || err != nil {
@@ -101,6 +169,7 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 				return err
 			}
 		}
+		return nil
 
 	case reflect.Map:
 		if ok, err := marshaler.MarshalMap(val); ok || err != nil {
@@ -159,6 +228,7 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 				return err
 			}
 		}
+		return nil
 
 	case reflect.Struct:
 		if ok, err := marshaler.MarshalMap(val); ok || err != nil {
@@ -199,10 +269,16 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 				return err
 			}
 		}
-
-	default:
-		return fmt.Errorf("cannot marshal %v: unsupported type %v", val.Interface(), typ)
+		return nil
 	}
 
-	return nil
+	return fmt.Errorf("cannot marshal %v: unsupported type %v", val.Interface(), typ)
+}
+
+// BytesToString converts the provided byte slice into a string. No copy is performed,
+// which means that changing the data slice will also change the string, which will
+// break any code that relies on the assumption that strings are read-only. Use
+// with care.
+func BytesToString(data []byte) string {
+	return *(*string)(unsafe.Pointer(&data))
 }

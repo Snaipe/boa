@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"go/constant"
 	"io"
 	"os"
 	"reflect"
@@ -176,18 +177,61 @@ func (m *marshaler) MarshalValue(v reflect.Value) (bool, error) {
 	return false, nil
 }
 
-func (m *marshaler) MarshalString(v reflect.Value) error {
-	var err error
-	switch s := v.Interface().(type) {
-	case string:
-		_, err = m.quote(s, '"', true)
-	case []byte:
-		_, err = m.quote(string(s), '"', true)
-	default:
-		err = fmt.Errorf("type %T cannot be marshaled into a string", s)
+func (m *marshaler) MarshalBool(b bool) (err error) {
+	if b {
+		_, err = io.WriteString(m.wr, "true")
+	} else {
+		_, err = io.WriteString(m.wr, "false")
 	}
 	return err
 }
+
+func (m *marshaler) MarshalString(s string) error {
+	_, err := m.quote(s, '"', true)
+	return err
+}
+
+func (m *marshaler) MarshalNumber(v constant.Value) (err error) {
+	switch v.Kind() {
+	case constant.Int:
+		_, err = fmt.Fprintf(m.wr, "%d", constant.Val(v))
+	case constant.Float:
+		_, err = fmt.Fprintf(m.wr, "%g", constant.Val(v))
+	default:
+		err = fmt.Errorf("unsupported constant %v", v)
+	}
+	return err
+}
+
+func (m *marshaler) MarshalNaN(v float64) error {
+	if m.json {
+		return fmt.Errorf("NaN is not representable in JSON")
+	}
+	_, err := io.WriteString(m.wr, "NaN")
+	return err
+}
+
+func (m *marshaler) MarshalInf(v float64) error {
+	if m.json {
+		return fmt.Errorf("infinity is not representable in JSON")
+	}
+	var err error
+	if v >= 0 {
+		_, err = io.WriteString(m.wr, "+")
+	} else {
+		_, err = io.WriteString(m.wr, "-")
+	}
+	if err == nil {
+		_, err = io.WriteString(m.wr, "Infinity")
+	}
+	return err
+}
+
+func (m *marshaler) MarshalNil() error {
+	_, err := io.WriteString(m.wr, "null")
+	return err
+}
+
 
 func (m *marshaler) MarshalList(v reflect.Value) (bool, error) {
 	m.depth++
@@ -388,6 +432,9 @@ var (
 	_ reflectutil.PostMapValueMarshaler = (*marshaler)(nil)
 	_ reflectutil.Stringifier           = (*marshaler)(nil)
 	_ reflectutil.StructTagParser       = (*marshaler)(nil)
+	_ reflectutil.NaNMarshaler          = (*marshaler)(nil)
+	_ reflectutil.InfMarshaler          = (*marshaler)(nil)
+	_ reflectutil.NilMarshaler          = (*marshaler)(nil)
 )
 
 func (encoder *Encoder) Encode(v interface{}) error {
