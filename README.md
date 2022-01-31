@@ -8,6 +8,36 @@ A friendlier viper.
 go get snai.pe/boa
 ```
 
+## Introduction
+
+Boa aims to be a **simple, human-focused, no-dependency** configuration management library.
+
+It supports **JSON5** and **TOML**.
+
+Configurations are expressed as Go types, using struct field tags to map configuration files
+to type-safe data types.
+
+For instance, the following TOML configuration file:
+
+```toml
+[person]
+first-name = "John"
+last-name = "Doe"
+dob = 1953-02-25T00:00:42-08:00
+```
+
+Can be loaded into this Go type:
+
+```go
+type Config struct {
+  Person struct {
+    FirstName string
+    LastName  string
+    Birth     time.Time `name:"dob"`
+  } `naming:"kebab-case"`
+}
+```
+
 ## Why boa?
 
 At the time of writing, none of the other configuration parsers are actually designed
@@ -36,6 +66,15 @@ In addition, all configuration parsers have the following properties:
 * Comments and whitespace are preserved by the parsers in the configuration AST,
   which makes it possible to edit configuration while still preserving the style
   of the original file.
+
+## Supported tags
+
+| Tag               | Description
+|-------------------|-------------
+| `name:"<name>"`   | Set key name.
+| `help:"<help>"`   | Set documentation; appears as comment in the config.
+| `naming:"<name>"` | Set naming convention for key and subkeys.
+| `-`               | Ignore field.
 
 ## Examples
 
