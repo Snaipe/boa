@@ -95,7 +95,7 @@ func (state *lexerState) lex(l *Lexer) StateFunc {
 		next, _, err := l.ReadRune()
 		if err != nil {
 			if err == io.EOF {
-				l.Emit(TokenNumber, constant.Make(0))
+				l.Emit(TokenNumber, constant.MakeInt64(0))
 			}
 			return l.Error(err)
 		}
@@ -110,7 +110,8 @@ func (state *lexerState) lex(l *Lexer) StateFunc {
 			// Numbers can't start with 0
 			return l.Errorf("parsing integer: unexpected character '%c'", next)
 		default:
-			l.Emit(TokenNumber, constant.Make(0))
+			l.UnreadRune()
+			l.Emit(TokenNumber, constant.MakeInt64(0))
 			return state.lex
 		}
 	case '.', '1', '2', '3', '4', '5', '6', '7', '8', '9':
