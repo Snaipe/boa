@@ -39,9 +39,16 @@ func NewEncoder(wr io.Writer) *Encoder {
 	return &encoder
 }
 
-func (encoder *Encoder) Option(opts ...EncoderOption) *Encoder {
+func (encoder *Encoder) Option(opts ...interface{}) encoding.Encoder {
 	for _, opt := range opts {
-		opt(encoder)
+		switch setopt := opt.(type) {
+		case encoding.CommonOption:
+			setopt(&encoder.marshaler.CommonOptions)
+		case encoding.EncoderOption:
+			setopt(&encoder.marshaler.EncoderOptions)
+		default:
+			panic(fmt.Sprintf("%T is not a common option, nor an encoder option.", opt))
+		}
 	}
 	return encoder
 }
@@ -60,7 +67,8 @@ type marshaler struct {
 	path      []string
 
 	// options
-	indent string
+	encoding.CommonOptions
+	encoding.EncoderOptions
 }
 
 func (m *marshaler) quote(in string, delim rune) (int, error) {
@@ -151,7 +159,7 @@ func (m *marshaler) writeNewline() error {
 	if _, err := io.WriteString(m.wr, "\n"); err != nil {
 		return err
 	}
-	return m.writeIndent(m.indent, m.depth-1)
+	return m.writeIndent(m.Indent, m.depth-1)
 }
 
 func (m *marshaler) writeIndent(indent string, level int) error {
@@ -290,7 +298,7 @@ func (m *marshaler) MarshalListPost(v reflect.Value) error {
 func (m *marshaler) MarshalListElem(l, v reflect.Value, i int) (bool, error) {
 	switch l.Type().Elem().Kind() {
 	case reflect.Map, reflect.Struct:
-		if err := m.writeIndent(m.indent, m.depth-1); err != nil {
+		if err := m.writeIndent(m.Indent, m.depth-1); err != nil {
 			return false, err
 		}
 		if _, err := io.WriteString(m.wr, "["); err != nil {
@@ -358,7 +366,7 @@ func (m *marshaler) MarshalMapPost(v reflect.Value, kvs []reflectutil.MapEntry) 
 
 func (m *marshaler) writeComment(comments []string, depth int) error {
 	for _, comment := range comments {
-		if err := m.writeIndent(m.indent, depth); err != nil {
+		if err := m.writeIndent(m.Indent, depth); err != nil {
 			return err
 		}
 		if _, err := io.WriteString(m.wr, "# "); err != nil {
@@ -382,7 +390,7 @@ func (m *marshaler) MarshalMapKey(mv reflect.Value, kv reflectutil.MapEntry, i i
 		if err := m.writeComment(kv.Options.Help, m.depth-1); err != nil {
 			return err
 		}
-		if err := m.writeIndent(m.indent, m.depth-1); err != nil {
+		if err := m.writeIndent(m.Indent, m.depth-1); err != nil {
 			return err
 		}
 		if _, err := m.writeKey(kv.Key); err != nil {
@@ -400,7 +408,7 @@ func (m *marshaler) MarshalMapKey(mv reflect.Value, kv reflectutil.MapEntry, i i
 		if err := m.writeComment(kv.Options.Help, m.depth); err != nil {
 			return err
 		}
-		if err := m.writeIndent(m.indent, m.depth); err != nil {
+		if err := m.writeIndent(m.Indent, m.depth); err != nil {
 			return err
 		}
 		if _, err := io.WriteString(m.wr, "["); err != nil {
@@ -499,7 +507,13 @@ func (encoder *Encoder) Encode(v interface{}) error {
 	if node, ok := v.(*syntax.Node); ok {
 		return node.Marshal(&encoder.marshaler)
 	}
-	return reflectutil.Marshal(reflect.ValueOf(v), &encoder.marshaler, encoding.SnakeCase)
+
+	convention := encoder.marshaler.NamingConvention
+	if convention == nil {
+		convention = encoding.SnakeCase
+	}
+
+	return reflectutil.Marshal(reflect.ValueOf(v), &encoder.marshaler, convention)
 }
 
 func Marshal(v interface{}) ([]byte, error) {

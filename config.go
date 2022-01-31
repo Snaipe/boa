@@ -44,6 +44,7 @@ func Load(path string, v interface{}) error {
 	default:
 		return fmt.Errorf("no known decoder for file extension %q", ext)
 	}
+	decoder = decoder.Option(defaultDecoderOptions...)
 
 	return decoder.Decode(v)
 }
@@ -66,6 +67,7 @@ func Save(path string, v interface{}) error {
 	default:
 		return fmt.Errorf("no known encoder for file extension %q", ext)
 	}
+	encoder = encoder.Option(defaultEncoderOptions...)
 
 	return encoder.Encode(v)
 }

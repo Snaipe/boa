@@ -7,6 +7,7 @@ package json5
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"reflect"
@@ -19,6 +20,9 @@ import (
 
 type populator struct {
 	structTagParser
+
+	encoding.CommonOptions
+	encoding.DecoderOptions
 }
 
 func (populator) PopulateValue(val reflect.Value, node *Node) (bool, error) {
@@ -43,7 +47,8 @@ var (
 )
 
 type Decoder struct {
-	parser *parser
+	parser    *parser
+	populator populator
 }
 
 func NewDecoder(rd io.Reader) *Decoder {
@@ -60,6 +65,22 @@ func NewDecoder(rd io.Reader) *Decoder {
 	return &decoder
 }
 
+func (decoder *Decoder) Option(opts ...interface{}) encoding.Decoder {
+	for _, opt := range opts {
+		switch setopt := opt.(type) {
+		case encoding.CommonOption:
+			setopt(&decoder.populator.CommonOptions)
+		case encoding.DecoderOption:
+			setopt(&decoder.populator.DecoderOptions)
+		case DecoderOption:
+			setopt(decoder)
+		default:
+			panic(fmt.Sprintf("%T is not a common option, nor an encoder option.", opt))
+		}
+	}
+	return decoder
+}
+
 func (decoder *Decoder) Decode(v interface{}) error {
 	root, err := decoder.parser.Parse()
 	if err != nil {
@@ -74,12 +95,19 @@ func (decoder *Decoder) Decode(v interface{}) error {
 		panic("json5.Decoder.Decode: must pass in pointer value")
 	}
 
-	err = reflectutil.Populate(ptr.Elem(), root.Child, encoding.CamelCase, populator{})
+	convention := decoder.populator.NamingConvention
+	if convention == nil {
+		convention = encoding.CamelCase
+	}
+
+	err = reflectutil.Populate(ptr.Elem(), root.Child, convention, decoder.populator)
 	if e, ok := err.(*encoding.LoadError); ok {
 		e.Filename = decoder.parser.name
 	}
 	return err
 }
+
+type DecoderOption func(*Decoder)
 
 // Load is a convenience function to load a JSON5 document into the value
 // pointed at by v. It is functionally equivalent to NewDecoder(<file at path>).Decode(v).

@@ -14,10 +14,12 @@ import (
 
 type Encoder interface {
 	Encode(v interface{}) error
+	Option(...interface{}) Encoder
 }
 
 type Decoder interface {
 	Decode(v interface{}) error
+	Option(...interface{}) Decoder
 }
 
 type LoadError struct {
@@ -38,6 +40,45 @@ func (e *LoadError) Error() string {
 func (e *LoadError) Unwrap() error {
 	return e.Err
 }
+
+// CommonOptions represents the base set of configurations that may be set on
+// any boa encoder or decoder.
+//
+// You should not be using this type directly -- instead, set relevant options
+// via one of the options in the boa package, or package-specific options
+// in the package of the relevant encoder or decoder.
+type CommonOptions struct {
+	NamingConvention NamingConvention
+}
+
+// CommonOption represents an option common to all encoders and decoders in boa.
+type CommonOption func(*CommonOptions)
+
+// EncoderOptions represents the base set of configurations that may be set on
+// any boa encoder.
+//
+// You should not be using this type directly -- instead, set relevant options
+// via one of the options in the boa package, or encoder-specific options
+// in the package of the relevant encoder.
+type EncoderOptions struct {
+	Indent string
+}
+
+// EncoderOption represents an option common to all encoders in boa.
+type EncoderOption func(*EncoderOptions)
+
+// DecoderOptions represents the base set of configurations that may be set on
+// any boa decoder.
+//
+// You should not be using this type directly -- instead, set relevant options
+// via one of the options in the boa package, or decoder-specific options
+// in the package of the relevant decoder.
+type DecoderOptions struct {
+	Indent string
+}
+
+// DecoderOption represents an option common to all decoders in boa.
+type DecoderOption func(*DecoderOptions)
 
 // Alias some types from the standard encoding library for convenience
 

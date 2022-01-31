@@ -6,6 +6,8 @@
 package encoding
 
 import (
+	"fmt"
+	"sort"
 	"strings"
 	"unicode"
 )
@@ -127,5 +129,14 @@ func constantCase(name string, sep rune, screaming bool) baseConvention {
 }
 
 func NamingConventionByName(name string) NamingConvention {
-	return conventions[name]
+	convention := conventions[name]
+	if convention == nil {
+		supported := make([]string, 0, len(conventions))
+		for k, _ := range conventions {
+			supported = append(supported, k)
+		}
+		sort.Strings(supported)
+		panic(fmt.Sprintf("unknown naming convention %v, must be one of: %v", name, strings.Join(supported, ", ")))
+	}
+	return convention
 }

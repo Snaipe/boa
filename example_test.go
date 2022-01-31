@@ -262,3 +262,40 @@ func ExampleSave_json5() {
 	//   },
 	// }
 }
+
+func ExampleSetDefaultOptions() {
+
+	type Config struct {
+		FirstName string
+		LastName  string
+		Nickname  string
+	}
+
+	config := Config{
+		FirstName: "Franklin",
+		LastName: "Mathieu",
+		Nickname: "Snaipe",
+	}
+
+	boa.SetDefaultOptions(
+		boa.Indent("\t"),
+		boa.NamingConvention("kebab-case"),
+	)
+
+	if err := boa.Save("testdata/example_opts.json5", config); err != nil {
+		log.Fatalln(err)
+	}
+
+	out, err := ioutil.ReadFile("testdata/example_opts.json5")
+	if err != nil {
+		log.Fatalln(err)
+	}
+	os.Stdout.Write(out)
+
+	// Output:
+	// {
+	// 	"first-name": "Franklin",
+	// 	"last-name": "Mathieu",
+	// 	nickname: "Snaipe",
+	// }
+}

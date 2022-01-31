@@ -34,9 +34,18 @@ func NewEncoder(wr io.Writer) *Encoder {
 	return &encoder
 }
 
-func (encoder *Encoder) Option(opts ...EncoderOption) *Encoder {
+func (encoder *Encoder) Option(opts ...interface{}) encoding.Encoder {
 	for _, opt := range opts {
-		opt(encoder)
+		switch setopt := opt.(type) {
+		case encoding.CommonOption:
+			setopt(&encoder.marshaler.CommonOptions)
+		case encoding.EncoderOption:
+			setopt(&encoder.marshaler.EncoderOptions)
+		case EncoderOption:
+			setopt(encoder)
+		default:
+			panic(fmt.Sprintf("%T is not a common option, nor an encoder option.", opt))
+		}
 	}
 	return encoder
 }
@@ -55,8 +64,9 @@ type marshaler struct {
 	newline bool
 
 	// options
+	encoding.CommonOptions
+	encoding.EncoderOptions
 	json   bool
-	indent string
 	prefix string
 }
 
@@ -137,7 +147,7 @@ func (m *marshaler) writeNewline() error {
 	if _, err := io.WriteString(m.wr, "\n"); err != nil {
 		return err
 	}
-	return m.writeIndent(m.indent, m.depth)
+	return m.writeIndent(m.Indent, m.depth)
 }
 
 func (m *marshaler) writeIndent(indent string, level int) error {
@@ -237,7 +247,7 @@ func (m *marshaler) MarshalList(v reflect.Value) (bool, error) {
 func (m *marshaler) MarshalListPost(v reflect.Value) error {
 	m.depth--
 	if v.Len() > 0 {
-		if err := m.writeIndent(m.indent, m.depth); err != nil {
+		if err := m.writeIndent(m.Indent, m.depth); err != nil {
 			return err
 		}
 	}
@@ -246,7 +256,7 @@ func (m *marshaler) MarshalListPost(v reflect.Value) error {
 }
 
 func (m *marshaler) MarshalListElem(l, v reflect.Value, i int) (bool, error) {
-	return false, m.writeIndent(m.indent, m.depth)
+	return false, m.writeIndent(m.Indent, m.depth)
 }
 
 func (m *marshaler) MarshalListElemPost(l, v reflect.Value, i int) error {
@@ -290,7 +300,7 @@ func (m *marshaler) MarshalMap(v reflect.Value, kvs []reflectutil.MapEntry) (boo
 func (m *marshaler) MarshalMapPost(v reflect.Value, kvs []reflectutil.MapEntry) error {
 	m.depth--
 	if reflectutil.Len(v) > 0 {
-		if err := m.writeIndent(m.indent, m.depth); err != nil {
+		if err := m.writeIndent(m.Indent, m.depth); err != nil {
 			return err
 		}
 	}
@@ -306,7 +316,7 @@ func (m *marshaler) MarshalMapPost(v reflect.Value, kvs []reflectutil.MapEntry) 
 }
 
 func (m *marshaler) MarshalMapKey(mv reflect.Value, kv reflectutil.MapEntry, i int) error {
-	if err := m.writeIndent(m.indent, m.depth); err != nil {
+	if err := m.writeIndent(m.Indent, m.depth); err != nil {
 		return err
 	}
 	for _, comment := range kv.Options.Help {
@@ -350,7 +360,7 @@ func (m *marshaler) MarshalNode(node *syntax.Node) error {
 		}
 		switch tok.Type {
 		case syntax.TokenWhitespace:
-			if m.indent != "" {
+			if m.Indent != "" {
 				continue
 			}
 			m.newline = false
@@ -360,8 +370,8 @@ func (m *marshaler) MarshalNode(node *syntax.Node) error {
 				return err
 			}
 		default:
-			if m.newline && m.indent != "" {
-				if err := m.writeIndent(m.indent, m.depth); err != nil {
+			if m.newline && m.Indent != "" {
+				if err := m.writeIndent(m.Indent, m.depth); err != nil {
 					return err
 				}
 			}
@@ -409,7 +419,7 @@ func (m *marshaler) MarshalNodePost(node *syntax.Node) error {
 		}
 		switch tok.Type {
 		case syntax.TokenWhitespace:
-			if m.indent != "" {
+			if m.Indent != "" {
 				continue
 			}
 			m.newline = false
@@ -419,8 +429,8 @@ func (m *marshaler) MarshalNodePost(node *syntax.Node) error {
 				return err
 			}
 		default:
-			if m.newline && m.indent != "" {
-				if err := m.writeIndent(m.indent, m.depth); err != nil {
+			if m.newline && m.Indent != "" {
+				if err := m.writeIndent(m.Indent, m.depth); err != nil {
 					return err
 				}
 			}
@@ -465,7 +475,13 @@ func (encoder *Encoder) Encode(v interface{}) error {
 	if node, ok := v.(*syntax.Node); ok {
 		return node.Marshal(&encoder.marshaler)
 	}
-	return reflectutil.Marshal(reflect.ValueOf(v), &encoder.marshaler, encoding.CamelCase)
+
+	convention := encoder.marshaler.NamingConvention
+	if convention == nil {
+		convention = encoding.CamelCase
+	}
+
+	return reflectutil.Marshal(reflect.ValueOf(v), &encoder.marshaler, convention)
 }
 
 func MarshalJSON(v interface{}) ([]byte, error) {
@@ -486,7 +502,10 @@ func Marshal(v interface{}) ([]byte, error) {
 
 func MarshalIndent(v interface{}, prefix, indent string) ([]byte, error) {
 	var out bytes.Buffer
-	if err := NewEncoder(&out).Option(Prefix(prefix), Indent(indent)).Encode(v); err != nil {
+	enc := NewEncoder(&out)
+	enc.marshaler.prefix = prefix
+	enc.marshaler.Indent = indent
+	if err := enc.Encode(v); err != nil {
 		return nil, err
 	}
 	return out.Bytes(), nil
@@ -497,12 +516,6 @@ type EncoderOption func(*Encoder)
 func JSON() EncoderOption {
 	return func(encoder *Encoder) {
 		encoder.marshaler.json = true
-	}
-}
-
-func Indent(indent string) EncoderOption {
-	return func(encoder *Encoder) {
-		encoder.marshaler.indent = indent
 	}
 }
 
