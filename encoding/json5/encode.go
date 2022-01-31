@@ -240,8 +240,15 @@ func (m *marshaler) MarshalNil() error {
 
 func (m *marshaler) MarshalList(v reflect.Value) (bool, error) {
 	m.depth++
-	_, err := io.WriteString(m.wr, "[\n")
-	return false, err
+	if _, err := io.WriteString(m.wr, "["); err != nil {
+		return false, err
+	}
+	if v.Len() > 0 {
+		if _, err := io.WriteString(m.wr, "\n"); err != nil {
+			return false, err
+		}
+	}
+	return false, nil
 }
 
 func (m *marshaler) MarshalListPost(v reflect.Value) error {
@@ -293,8 +300,15 @@ func (m *marshaler) Stringify(v reflect.Value) (string, bool, error) {
 
 func (m *marshaler) MarshalMap(v reflect.Value, kvs []reflectutil.MapEntry) (bool, error) {
 	m.depth++
-	_, err := io.WriteString(m.wr, "{\n")
-	return false, err
+	if _, err := io.WriteString(m.wr, "{"); err != nil {
+		return false, err
+	}
+	if reflectutil.Len(v) > 0 {
+		if _, err := io.WriteString(m.wr, "\n"); err != nil {
+			return false, err
+		}
+	}
+	return false, nil
 }
 
 func (m *marshaler) MarshalMapPost(v reflect.Value, kvs []reflectutil.MapEntry) error {
