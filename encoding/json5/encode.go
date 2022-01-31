@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"go/constant"
 	"io"
+	"math/big"
 	"os"
 	"reflect"
 	"strings"
@@ -202,7 +203,19 @@ func (m *marshaler) MarshalNumber(v constant.Value) (err error) {
 	case constant.Int:
 		_, err = fmt.Fprintf(m.wr, "%d", constant.Val(v))
 	case constant.Float:
-		_, err = fmt.Fprintf(m.wr, "%g", constant.Val(v))
+		val := constant.Val(v)
+
+		var out strings.Builder
+		if rat, ok := val.(*big.Rat); ok {
+			val, _ = rat.Float64()
+		}
+		_, err = fmt.Fprintf(&out, "%g", val)
+
+		// Preserve at least a trailing .0 to keep floats as floats.
+		if !strings.ContainsAny(out.String(), ".eE") {
+			out.WriteString(".0")
+		}
+		io.WriteString(m.wr, out.String())
 	default:
 		err = fmt.Errorf("unsupported constant %v", v)
 	}
