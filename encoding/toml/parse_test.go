@@ -129,7 +129,7 @@ func (t *TomlTest) UnmarshalJSON(data []byte) error {
 }
 
 func TestTOMLStandardSuite(t *testing.T) {
-	filepath.Walk("testdata/tests", func(path string, info os.FileInfo, err error) error {
+	filepath.Walk("testdata/standard/tests", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -149,7 +149,7 @@ func TestTOMLStandardSuite(t *testing.T) {
 			return nil
 		}
 
-		testname := path[:len(path)-len(ext)][len("testdata/tests/"):]
+		testname := path[:len(path)-len(ext)][len("testdata/standard/tests/"):]
 		jsonpath := path[:len(path)-len(ext)] + ".json"
 
 		abspath, err := filepath.Abs(path)
@@ -282,7 +282,7 @@ func TestTOMLStandardSuite(t *testing.T) {
 }
 
 func BenchmarkStandardSuite(b *testing.B) {
-	filepath.Walk("testdata/tests/valid", func(path string, info os.FileInfo, err error) error {
+	filepath.Walk("testdata/standard/tests/valid", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			b.Fatal(err)
 		}

@@ -25,7 +25,7 @@ func noop(lhs, rhs reflect.Value) (bool, error) {
 }
 
 func TestStandardSuite(t *testing.T) {
-	filepath.Walk("testdata", func(path string, info os.FileInfo, err error) error {
+	filepath.Walk("testdata/standard", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -127,7 +127,7 @@ func TestStandardSuite(t *testing.T) {
 }
 
 func BenchmarkStandardSuite(b *testing.B) {
-	filepath.Walk("testdata", func(path string, info os.FileInfo, err error) error {
+	filepath.Walk("testdata/standard", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			b.Fatal(err)
 		}
