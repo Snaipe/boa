@@ -17,18 +17,18 @@ import (
 	"snai.pe/boa/syntax"
 )
 
-type Populator interface {
-	PopulateValue(val reflect.Value, node *syntax.Node) (bool, error)
+type Unmarshaler interface {
+	UnmarshalValue(val reflect.Value, node *syntax.Node) (bool, error)
 }
 
-type PopulateFunc func(val reflect.Value, node *syntax.Node) (bool, error)
+type UnmarshalFunc func(val reflect.Value, node *syntax.Node) (bool, error)
 
-func Populate(val reflect.Value, node *syntax.Node, convention encoding.NamingConvention, pop Populator) error {
-	_, err := populate(val, node, convention, nil, pop)
+func Unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingConvention, unmarshaler Unmarshaler) error {
+	_, err := unmarshal(val, node, convention, nil, unmarshaler)
 	return err
 }
 
-func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingConvention, path []string, pop Populator) (reflect.Value, error) {
+func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingConvention, path []string, unmarshaler Unmarshaler) (reflect.Value, error) {
 	typ := val.Type()
 
 	target := func() string {
@@ -93,7 +93,7 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 		}
 
 		if recurse {
-			_, err := populate(rval, node, convention, path, pop)
+			_, err := unmarshal(rval, node, convention, path, unmarshaler)
 			if err != nil {
 				return rval, err
 			}
@@ -101,8 +101,8 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 		return rval, nil
 	}
 
-	if pop != nil {
-		if ok, err := pop.PopulateValue(val, node); err != nil || ok {
+	if unmarshaler != nil {
+		if ok, err := unmarshaler.UnmarshalValue(val, node); err != nil || ok {
 			return val, newErr(err)
 		}
 	}
@@ -140,7 +140,7 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 		if val.IsNil() {
 			val.Set(reflect.New(typ.Elem()))
 		}
-		if _, err := populate(val.Elem(), node, convention, path, pop); err != nil {
+		if _, err := unmarshal(val.Elem(), node, convention, path, unmarshaler); err != nil {
 			return val, err
 		}
 
@@ -216,7 +216,7 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 			if idx >= val.Len() && kind == reflect.Array {
 				return val, newErr(fmt.Errorf("cannot assign %v to index %d: index out of bounds", node.Value, idx))
 			}
-			if _, err := populate(val.Index(idx), n, convention, append(path, fmt.Sprintf("[%d]", idx)), pop); err != nil {
+			if _, err := unmarshal(val.Index(idx), n, convention, append(path, fmt.Sprintf("[%d]", idx)), unmarshaler); err != nil {
 				return val, err
 			}
 			idx++
@@ -246,7 +246,7 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 					return val, err
 				}
 			} else {
-				rkey, err := populate(reflect.New(typ.Key()).Elem(), key, convention, path, pop)
+				rkey, err := unmarshal(reflect.New(typ.Key()).Elem(), key, convention, path, unmarshaler)
 				if err != nil {
 					return val, err
 				}
@@ -258,7 +258,7 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 				}
 				set := !mval.IsValid()
 
-				rval, err = populate(rval, value, convention, append(path, fmt.Sprintf("[%v]", rkey.Interface())), pop)
+				rval, err = unmarshal(rval, value, convention, append(path, fmt.Sprintf("[%v]", rkey.Interface())), unmarshaler)
 				if err != nil {
 					return val, err
 				}
@@ -283,7 +283,7 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 		for i := 0; i < typ.NumField(); i++ {
 			field := typ.Field(i)
 			var opts FieldOpts
-			if parser, ok := pop.(StructTagParser); ok {
+			if parser, ok := unmarshaler.(StructTagParser); ok {
 				opts, _ = parser.ParseStructTag(field.Tag)
 			}
 			if _, ok := LookupTag(field.Tag, "-", false); ok {
@@ -348,7 +348,7 @@ func populate(val reflect.Value, node *syntax.Node, convention encoding.NamingCo
 			if !ok {
 				continue
 			}
-			_, err := populate(val.FieldByIndex(finfo.Idx), value, finfo.Convention, append(path, fmt.Sprintf(".%v", typ.FieldByIndex(finfo.Idx).Name)), pop)
+			_, err := unmarshal(val.FieldByIndex(finfo.Idx), value, finfo.Convention, append(path, fmt.Sprintf(".%v", typ.FieldByIndex(finfo.Idx).Name)), unmarshaler)
 			if err != nil {
 				return val, err
 			}

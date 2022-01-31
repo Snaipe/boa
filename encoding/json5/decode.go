@@ -18,14 +18,14 @@ import (
 	"snai.pe/boa/internal/reflectutil"
 )
 
-type populator struct {
+type unmarshaler struct {
 	structTagParser
 
 	encoding.CommonOptions
 	encoding.DecoderOptions
 }
 
-func (populator) PopulateValue(val reflect.Value, node *Node) (bool, error) {
+func (unmarshaler) UnmarshalValue(val reflect.Value, node *Node) (bool, error) {
 	switch unmarshaler := val.Interface().(type) {
 	case json.Unmarshaler:
 		data, err := MarshalJSON(node)
@@ -42,13 +42,13 @@ func (populator) PopulateValue(val reflect.Value, node *Node) (bool, error) {
 }
 
 var (
-	_ reflectutil.StructTagParser = (*populator)(nil)
-	_ reflectutil.Populator       = (*populator)(nil)
+	_ reflectutil.StructTagParser = (*unmarshaler)(nil)
+	_ reflectutil.Unmarshaler     = (*unmarshaler)(nil)
 )
 
 type Decoder struct {
-	parser    *parser
-	populator populator
+	parser      *parser
+	unmarshaler unmarshaler
 }
 
 func NewDecoder(rd io.Reader) *Decoder {
@@ -69,9 +69,9 @@ func (decoder *Decoder) Option(opts ...interface{}) encoding.Decoder {
 	for _, opt := range opts {
 		switch setopt := opt.(type) {
 		case encoding.CommonOption:
-			setopt(&decoder.populator.CommonOptions)
+			setopt(&decoder.unmarshaler.CommonOptions)
 		case encoding.DecoderOption:
-			setopt(&decoder.populator.DecoderOptions)
+			setopt(&decoder.unmarshaler.DecoderOptions)
 		case DecoderOption:
 			setopt(decoder)
 		default:
@@ -95,12 +95,12 @@ func (decoder *Decoder) Decode(v interface{}) error {
 		panic("json5.Decoder.Decode: must pass in pointer value")
 	}
 
-	convention := decoder.populator.NamingConvention
+	convention := decoder.unmarshaler.NamingConvention
 	if convention == nil {
 		convention = encoding.CamelCase
 	}
 
-	err = reflectutil.Populate(ptr.Elem(), root.Child, convention, decoder.populator)
+	err = reflectutil.Unmarshal(ptr.Elem(), root.Child, convention, decoder.unmarshaler)
 	if e, ok := err.(*encoding.LoadError); ok {
 		e.Filename = decoder.parser.name
 	}
