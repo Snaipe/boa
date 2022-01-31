@@ -83,18 +83,20 @@ Any type that implements [`encoding.TextUnmarshaler`][encoding.TextUnmarshaler] 
 
 In addition, the following standard library types are marshaled and unmarshaled as the appropriate type:
 
+| Type                 | Treated as |
+|----------------------|------------|
+| `[]byte`             | String     |
+| `*big.Int`           | Number     |
+| `*big.Float`         | Number     |
+| `*big.Rat`           | Number     |
+| `time.Time`          | String     |
+| `*url.URL`           | String     |
+
+Some packages also define or support some specialized types for specific configuration objects:
+
 | Type                 | Treated as | Packages (under `snai.pe/boa/encoding`)
 |----------------------|------------|-----------------------------------------
-| `[]byte`             | String     | `*`
-| `*big.Int`           | Number     | `*`
-| `*big.Float`         | Number     | `*`
-| `*big.Rat`           | Number     | `*`
 | `time.Time`          | DateTime   | `toml`
-
-Some packages also define some specialized types for specific configuration objects:
-
-| Type                 | Treated as | Packages (under `snai.pe/boa/encoding`)
-|----------------------|------------|-----------------------------------------
 | `toml.LocalDateTime` | DateTime   | `toml`
 | `toml.LocalDate`     | DateTime   | `toml`
 | `toml.LocalTime`     | DateTime   | `toml`

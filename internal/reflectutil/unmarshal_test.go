@@ -7,6 +7,7 @@ package reflectutil
 
 import (
 	"go/constant"
+	"net/url"
 	"reflect"
 	"testing"
 
@@ -40,6 +41,7 @@ type T struct {
 	Map        map[interface{}]interface{}
 	List       []interface{}
 	Struct     *T
+	URL        *url.URL
 }
 
 var expectedNest = T{
@@ -60,6 +62,7 @@ var expectedNest = T{
 	Float64:    float64(1),
 	Complex64:  complex(float32(1), 0),
 	Complex128: complex(float64(1), 0),
+	URL:        &url.URL{Scheme: "https", Host: "snai.pe", Path: "/boa"},
 }
 
 var expected = expectedNest
@@ -84,6 +87,7 @@ func init() {
 		"float64":    float64(1),
 		"complex64":  float64(1),
 		"complex128": float64(1),
+		"url":        "https://snai.pe/boa",
 	}
 	expected.List = []interface{}{
 		"string",
@@ -103,6 +107,7 @@ func init() {
 		float64(1),
 		float64(1),
 		float64(1),
+		"https://snai.pe/boa",
 	}
 
 	type nodespec struct {
@@ -129,6 +134,7 @@ func init() {
 		{"float64", syntax.NodeNumber, constant.MakeFloat64(1)},
 		{"complex64", syntax.NodeNumber, constant.MakeFloat64(1)},
 		{"complex128", syntax.NodeNumber, constant.MakeFloat64(1)},
+		{"url", syntax.NodeString, "https://snai.pe/boa"},
 	}
 
 	m1 := syntax.Node{Type: syntax.NodeMap}

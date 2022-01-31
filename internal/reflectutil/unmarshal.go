@@ -9,9 +9,9 @@ import (
 	stdenc "encoding"
 	"fmt"
 	"go/constant"
+	"net/url"
 	"reflect"
 	"strings"
-	"time"
 
 	"snai.pe/boa/encoding"
 	"snai.pe/boa/syntax"
@@ -122,15 +122,14 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 		}
 		val.Set(reflect.ValueOf([]byte(node.Value.(string))))
 		return val, nil
-	case time.Time:
-		if node.Type != syntax.NodeDateTime {
-			return val, newNodeErr(syntax.NodeDateTime)
+	case url.URL:
+		if node.Type != syntax.NodeString {
+			return val, newNodeErr(syntax.NodeString)
 		}
-		t, ok := node.Value.(time.Time)
-		if !ok {
-			panic(fmt.Sprintf("unexpected value type %T for datetime node", node.Value))
+		if err := rval.UnmarshalBinary([]byte(node.Value.(string))); err != nil {
+			return val, newErr(err)
 		}
-		val.Set(reflect.ValueOf(t))
+		val.Set(reflect.ValueOf(rval))
 		return val, nil
 	}
 
@@ -393,8 +392,27 @@ func Set(val, newval reflect.Value, convention encoding.NamingConvention, at ...
 			for _, k := range newval.MapKeys() {
 				v.SetMapIndex(k, newval.MapIndex(k))
 			}
-		// For everything else, try normal conversion rules
 		default:
+			// Handle other standard types
+			if v.IsValid() {
+				switch v.Type() {
+				case reflect.TypeOf((*url.URL)(nil)):
+					var u url.URL
+					if err := u.UnmarshalBinary([]byte(newval.Interface().(string))); err != nil {
+						return err
+					}
+					val.Set(reflect.ValueOf(&u))
+					return nil
+				case reflect.TypeOf(url.URL{}):
+					var u url.URL
+					if err := u.UnmarshalBinary([]byte(newval.Interface().(string))); err != nil {
+						return err
+					}
+					val.Set(reflect.ValueOf(u))
+					return nil
+				}
+			}
+			// For everything else, try normal conversion rules
 			val.Set(newval.Convert(val.Type()))
 		}
 		return nil

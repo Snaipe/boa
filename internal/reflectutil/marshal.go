@@ -11,6 +11,7 @@ import (
 	"go/constant"
 	"math"
 	"math/big"
+	"net/url"
 	"reflect"
 	"sort"
 	"strings"
@@ -109,6 +110,10 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 		return marshaler.MarshalString(BytesToString(txt))
 	case []byte:
 		return marshaler.MarshalString(BytesToString(m))
+	case *url.URL:
+		return marshaler.MarshalString(m.String())
+	case url.URL:
+		return marshaler.MarshalString(m.String())
 	}
 
 	switch kind := val.Kind(); kind {
@@ -351,6 +356,7 @@ func IsValueType(t reflect.Type) bool {
 	case reflect.TypeOf(big.Int{}),
 		reflect.TypeOf(big.Float{}),
 		reflect.TypeOf(big.Rat{}),
+		reflect.TypeOf(url.URL{}),
 		reflect.TypeOf([]byte(nil)):
 		return true
 	}
