@@ -136,11 +136,16 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 	switch kind := val.Kind(); kind {
 
 	case reflect.Ptr:
-		if val.IsNil() {
-			val.Set(reflect.New(typ.Elem()))
-		}
-		if _, err := unmarshal(val.Elem(), node, convention, path, unmarshaler); err != nil {
-			return val, err
+		if node.Type == syntax.NodeNil {
+			// We have an explicit nil, therefore we must set the pointer to nil.
+			val.Set(reflect.Zero(typ))
+		} else {
+			if val.IsNil() {
+				val.Set(reflect.New(typ.Elem()))
+			}
+			if _, err := unmarshal(val.Elem(), node, convention, path, unmarshaler); err != nil {
+				return val, err
+			}
 		}
 
 	case reflect.Bool:
