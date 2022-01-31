@@ -241,7 +241,7 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 				if err != nil {
 					return val, err
 				}
-				if err := Set(val, rval, convention, at...); err != nil {
+				if err := Set(val, rval, convention, unmarshaler, at...); err != nil {
 					return val, err
 				}
 			} else {
@@ -270,46 +270,11 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 
 	case reflect.Struct:
 
-		type fieldInfo struct {
-			Idx        []int
-			Convention encoding.NamingConvention
-		}
-
 		if node.Type != syntax.NodeMap {
 			return val, newNodeErr(syntax.NodeMap)
 		}
-		fields := make(map[string]fieldInfo, typ.NumField()*2)
-		for i := 0; i < typ.NumField(); i++ {
-			field := typ.Field(i)
-			var opts FieldOpts
-			if parser, ok := unmarshaler.(StructTagParser); ok {
-				opts, _ = parser.ParseStructTag(field.Tag)
-			}
-			if _, ok := LookupTag(field.Tag, "-", false); ok {
-				opts.Ignore = true
-			}
-			if opts.Ignore {
-				continue
-			}
-			if nametag, ok := LookupTag(field.Tag, "name", false); ok {
-				opts.Name = nametag.Value
-			}
-			if naming, ok := LookupTag(field.Tag, "naming", false); ok {
-				conv := encoding.NamingConventionByName(naming.Value)
-				if conv == nil {
-					panic(fmt.Sprintf("unknown naming convention %s", naming.Value))
-				}
-				opts.Naming = conv
-			}
-			if opts.Naming == nil {
-				opts.Naming = convention
-			}
-			if opts.Name != "" {
-				fields[opts.Name] = fieldInfo{field.Index, opts.Naming}
-			} else {
-				fields[opts.Naming.Format(field.Name)] = fieldInfo{field.Index, opts.Naming}
-			}
-		}
+
+		fields := VisibleFieldsMap(val, convention, unmarshaler)
 
 		for key := node.Child; key != nil; key = key.Sibling {
 			value := key.Child
@@ -335,7 +300,7 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 				if err != nil {
 					return val, err
 				}
-				if err := Set(val, rval, convention, at...); err != nil {
+				if err := Set(val, rval, convention, unmarshaler, at...); err != nil {
 					return val, err
 				}
 				continue
@@ -343,11 +308,11 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 				return val, fmt.Errorf("unsupported node type %v", node.Type)
 			}
 
-			finfo, ok := fields[fieldname]
+			field, ok := fields[fieldname]
 			if !ok {
 				continue
 			}
-			_, err := unmarshal(val.FieldByIndex(finfo.Idx), value, finfo.Convention, append(path, fmt.Sprintf(".%v", typ.FieldByIndex(finfo.Idx).Name)), unmarshaler)
+			_, err := unmarshal(field.Value, value, field.Convention, append(path, fmt.Sprintf(".%v", field.Name)), unmarshaler)
 			if err != nil {
 				return val, err
 			}
@@ -367,7 +332,7 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 	return val, nil
 }
 
-func Set(val, newval reflect.Value, convention encoding.NamingConvention, at ...interface{}) error {
+func Set(val, newval reflect.Value, convention encoding.NamingConvention, unmarshaler Unmarshaler, at ...interface{}) error {
 	if !newval.IsValid() || !val.IsValid() {
 		panic("cannot call Set with invalid value")
 	}
@@ -441,7 +406,7 @@ func Set(val, newval reflect.Value, convention encoding.NamingConvention, at ...
 			rval.Set(reflect.New(typ.Elem()))
 			val.Set(rval)
 		}
-		return Set(rval.Elem(), newval, convention, at...)
+		return Set(rval.Elem(), newval, convention, unmarshaler, at...)
 	case reflect.Map:
 		if !velem.Type().AssignableTo(typ.Key()) {
 			return fmt.Errorf("cannot index %v with %T %q", typ, elem, elem)
@@ -455,7 +420,7 @@ func Set(val, newval reflect.Value, convention encoding.NamingConvention, at ...
 		if vval.IsValid() {
 			newvval.Set(vval)
 		}
-		err := Set(newvval, newval, convention, at[1:]...)
+		err := Set(newvval, newval, convention, unmarshaler, at[1:]...)
 		if err != nil {
 			return err
 		}
@@ -478,13 +443,13 @@ func Set(val, newval reflect.Value, convention encoding.NamingConvention, at ...
 			for i := 0; i < rval.Len(); i++ {
 				nval.Index(i).Set(rval.Index(i))
 			}
-			if err := Set(nval.Index(idx), newval, convention, at[1:]...); err != nil {
+			if err := Set(nval.Index(idx), newval, convention, unmarshaler, at[1:]...); err != nil {
 				return err
 			}
 			val.Set(nval)
 			return nil
 		}
-		if err := Set(rval.Index(idx), newval, convention, at[1:]...); err != nil {
+		if err := Set(rval.Index(idx), newval, convention, unmarshaler, at[1:]...); err != nil {
 			return err
 		}
 		return nil
@@ -493,11 +458,11 @@ func Set(val, newval reflect.Value, convention encoding.NamingConvention, at ...
 		if !ok {
 			return fmt.Errorf("cannot find struct field with non-string name type %T", elem)
 		}
-		for i := 0; i < typ.NumField(); i++ {
-			field := typ.Field(i)
-			if fname == convention.Format(field.Name) {
-				return Set(rval.Field(i), newval, convention, at[1:]...)
-			}
+
+		fields := VisibleFieldsMap(rval, convention, unmarshaler)
+
+		if field, ok := fields[fname]; ok {
+			return Set(field.Value, newval, field.Convention, unmarshaler, at[1:]...)
 		}
 		return fmt.Errorf("cannot find struct field with name %v", fname)
 	default:
@@ -533,4 +498,53 @@ func ConstantToFloat(constv constant.Value) reflect.Value {
 	}
 	out := constant.Val(constv)
 	return reflect.ValueOf(&out).Elem().Elem()
+}
+
+type StructField struct {
+	reflect.StructField
+	Value      reflect.Value
+	Convention encoding.NamingConvention
+}
+
+func VisibleFieldsMap(val reflect.Value, convention encoding.NamingConvention, unmarshaler interface{}) map[string]StructField {
+	fields := make(map[string]StructField, val.Type().NumField()*2)
+	visibleFieldsMap(fields, val, val.Type(), convention, unmarshaler)
+	return fields
+}
+
+func visibleFieldsMap(fields map[string]StructField, val reflect.Value, typ reflect.Type, convention encoding.NamingConvention, unmarshaler interface{}) {
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+
+		opts := ParseFieldOpts(field.Tag, unmarshaler, convention)
+		if opts.Ignore {
+			continue
+		}
+
+		elem := val.FieldByIndex(field.Index)
+		if field.Anonymous && opts.Name == "" || opts.Inline {
+			// Process the field later. This allows local fields
+			// to take precendence during unmarshaling.
+			continue
+		}
+		if opts.Name == "" {
+			opts.Name = opts.Naming.Format(field.Name)
+		}
+		if _, ok := fields[opts.Name]; !ok {
+			fields[opts.Name] = StructField{field, elem, opts.Naming}
+		}
+	}
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+
+		opts := ParseFieldOpts(field.Tag, unmarshaler, convention)
+		if opts.Ignore {
+			continue
+		}
+
+		elem := val.FieldByIndex(field.Index)
+		if field.Anonymous && opts.Name == "" || opts.Inline {
+			visibleFieldsMap(fields, elem, field.Type, opts.Naming, unmarshaler)
+		}
+	}
 }

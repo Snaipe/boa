@@ -25,6 +25,7 @@ type FieldOpts struct {
 	Help   []string
 	Ignore bool
 	Naming NamingConvention
+	Inline bool
 }
 
 type MapEntry struct {
@@ -253,57 +254,7 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 		return nil
 
 	case reflect.Struct:
-		l := typ.NumField()
-		kvs := make([]MapEntry, 0, l)
-		for i := 0; i < l; i++ {
-			field := typ.Field(i)
-
-			var opts FieldOpts
-			var name string
-			if parser, ok := marshaler.(StructTagParser); ok {
-				if opts, ok = parser.ParseStructTag(field.Tag); ok && opts.Name != "" {
-					name = opts.Name
-				}
-			}
-			if _, ok := LookupTag(field.Tag, "-", false); ok {
-				opts.Ignore = true
-			}
-			if opts.Ignore {
-				continue
-			}
-			if nametag, ok := LookupTag(field.Tag, "name", false); ok {
-				name = nametag.Value
-			}
-			if helptag, ok := LookupTag(field.Tag, "help", false); ok {
-				help := strings.TrimSpace(helptag.Value)
-				if help != "" {
-					lines := strings.Split(help, "\n")
-					for i, l := range lines {
-						lines[i] = strings.TrimSpace(l)
-					}
-					opts.Help = lines
-				}
-			}
-			if naming, ok := LookupTag(field.Tag, "naming", false); ok {
-				conv := NamingConventionByName(naming.Value)
-				if conv == nil {
-					panic(fmt.Sprintf("unknown naming convention %s", naming.Value))
-				}
-				opts.Naming = conv
-			}
-			if opts.Naming == nil {
-				opts.Naming = convention
-			}
-			if name == "" {
-				name = opts.Naming.Format(field.Name)
-			}
-
-			elem := val.FieldByIndex(field.Index)
-			for elem.Kind() == reflect.Interface && !elem.IsNil() {
-				elem = elem.Elem()
-			}
-			kvs = append(kvs, MapEntry{Key: name, Value: elem, Options: opts})
-		}
+		kvs := VisibleFieldsAsMapEntries(val, convention, marshaler)
 
 		if ok, err := marshaler.MarshalMap(val, kvs); ok || err != nil {
 			return err
@@ -379,4 +330,86 @@ func Len(v reflect.Value) int {
 	default:
 		return 1
 	}
+}
+
+// ParseFieldOpts parses the standard set of field options that boa supports.
+func ParseFieldOpts(tag reflect.StructTag, marshaler interface{}, convention NamingConvention) (opts FieldOpts) {
+	if parser, ok := marshaler.(StructTagParser); ok {
+		opts, _ = parser.ParseStructTag(tag)
+	}
+	if _, ok := LookupTag(tag, "-", false); ok {
+		opts.Ignore = true
+	}
+	if opts.Ignore {
+		return
+	}
+	if nametag, ok := LookupTag(tag, "name", false); ok {
+		opts.Name = nametag.Value
+	}
+	if helptag, ok := LookupTag(tag, "help", false); ok {
+		help := strings.TrimSpace(helptag.Value)
+		if help != "" {
+			lines := strings.Split(help, "\n")
+			for i, l := range lines {
+				lines[i] = strings.TrimSpace(l)
+			}
+			opts.Help = lines
+		}
+	}
+	if naming, ok := LookupTag(tag, "naming", false); ok {
+		conv := NamingConventionByName(naming.Value)
+		if conv == nil {
+			panic(fmt.Sprintf("unknown naming convention %s", naming.Value))
+		}
+		opts.Naming = conv
+	}
+	_, opts.Inline = LookupTag(tag, "inline", false)
+	if opts.Naming == nil {
+		opts.Naming = convention
+	}
+	return
+}
+
+func VisibleFieldsAsMapEntries(val reflect.Value, convention NamingConvention, marshaler interface{}) []MapEntry {
+	return visibleFields(make([]MapEntry, 0, val.Type().NumField()), val, val.Type(), convention, marshaler)
+}
+
+func visibleFields(kvs []MapEntry, val reflect.Value, typ reflect.Type, convention NamingConvention, marshaler interface{}) []MapEntry {
+	l := typ.NumField()
+	for i := 0; i < l; i++ {
+		field := typ.Field(i)
+
+		opts := ParseFieldOpts(field.Tag, marshaler, convention)
+		if opts.Ignore {
+			continue
+		}
+
+		elem := val.FieldByIndex(field.Index)
+		if field.Anonymous && opts.Name == "" || opts.Inline {
+			// Process the field later. This allows local fields
+			// to take precendence during unmarshaling.
+			continue
+		}
+		if opts.Name == "" {
+			opts.Name = opts.Naming.Format(field.Name)
+		}
+		for elem.Kind() == reflect.Interface && !elem.IsNil() {
+			elem = elem.Elem()
+		}
+		kvs = append(kvs, MapEntry{Key: opts.Name, Value: elem, Options: opts})
+	}
+	for i := 0; i < l; i++ {
+		field := typ.Field(i)
+
+		opts := ParseFieldOpts(field.Tag, marshaler, convention)
+		if opts.Ignore {
+			continue
+		}
+
+		elem := val.FieldByIndex(field.Index)
+		if field.Anonymous && opts.Name == "" || opts.Inline {
+			kvs = visibleFields(kvs, elem, field.Type, opts.Naming, marshaler)
+		}
+	}
+	return kvs
 }

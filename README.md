@@ -74,6 +74,7 @@ In addition, all configuration parsers have the following properties:
 | `name:"<name>"`   | Set key name.
 | `help:"<help>"`   | Set documentation; appears as comment in the config.
 | `naming:"<name>"` | Set naming convention for key and subkeys.
+| `inline`          | Inline field. All sub-fields will be treated as if they were in the containing struct itself. Does the same as embedding the field.
 | `-`               | Ignore field.
 
 ## Supported types
