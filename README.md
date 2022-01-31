@@ -76,6 +76,29 @@ In addition, all configuration parsers have the following properties:
 | `naming:"<name>"` | Set naming convention for key and subkeys.
 | `-`               | Ignore field.
 
+## Supported types
+
+Any type that implements [`encoding.TextMarshaler`][encoding.TextMarshaler] can be saved as a string.
+Any type that implements [`encoding.TextUnmarshaler`][encoding.TextUnmarshaler] can be loaded from a string.
+
+In addition, the following standard library types are marshaled and unmarshaled as the appropriate type:
+
+| Type                 | Treated as | Packages (under `snai.pe/boa/encoding`)
+|----------------------|------------|-----------------------------------------
+| `[]byte`             | String     | `*`
+| `*big.Int`           | Number     | `*`
+| `*big.Float`         | Number     | `*`
+| `*big.Rat`           | Number     | `*`
+| `time.Time`          | DateTime   | `toml`
+
+Some packages also define some specialized types for specific configuration objects:
+
+| Type                 | Treated as | Packages (under `snai.pe/boa/encoding`)
+|----------------------|------------|-----------------------------------------
+| `toml.LocalDateTime` | DateTime   | `toml`
+| `toml.LocalDate`     | DateTime   | `toml`
+| `toml.LocalTime`     | DateTime   | `toml`
+
 ## Examples
 
 If you're only interested in reading or writing without preserving the original file:
@@ -115,3 +138,6 @@ has a documenting comment whose content is the value of the corresponding `help`
 ## Credits
 
 Logo made by [Irina Mir](https://twitter.com/irmirx)
+
+[encoding.TextMarshaler]: https://pkg.go.dev/encoding#TextMarshaler
+[encoding.TextUnmarshaler]: https://pkg.go.dev/encoding#TextUnmarshaler
