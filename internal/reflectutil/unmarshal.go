@@ -251,6 +251,10 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 		val.SetString(node.Value.(string))
 
 	case reflect.Array, reflect.Slice:
+		if node.Type == syntax.NodeNil {
+			val.Set(reflect.Zero(typ))
+			return val, nil
+		}
 		if node.Type != syntax.NodeList {
 			return val, newNodeErr(syntax.NodeList)
 		}
@@ -275,6 +279,10 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 		}
 
 	case reflect.Map:
+		if node.Type == syntax.NodeNil {
+			val.Set(reflect.Zero(typ))
+			return val, nil
+		}
 		if node.Type != syntax.NodeMap {
 			return val, newNodeErr(syntax.NodeMap)
 		}
