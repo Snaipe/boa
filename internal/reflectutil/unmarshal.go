@@ -9,6 +9,7 @@ import (
 	stdenc "encoding"
 	"fmt"
 	"go/constant"
+	"math/big"
 	"net/url"
 	"reflect"
 	"strings"
@@ -107,7 +108,52 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 		}
 	}
 
-	switch rval := val.Interface().(type) {
+	switch rval := val.Addr().Interface().(type) {
+	case *big.Float:
+		if node.Type != syntax.NodeNumber {
+			return val, newNodeErr(syntax.NodeNumber)
+		}
+		switch v := constant.Val(node.Value.(constant.Value)).(type) {
+		case int64:
+			rval.SetInt64(v)
+		case *big.Int:
+			rval.SetInt(v)
+		case *big.Float:
+			rval.Set(v)
+		case *big.Rat:
+			rval.SetRat(v)
+		}
+		return val, nil
+	case *big.Rat:
+		if node.Type != syntax.NodeNumber {
+			return val, newNodeErr(syntax.NodeNumber)
+		}
+		switch v := constant.Val(node.Value.(constant.Value)).(type) {
+		case int64:
+			rval.SetInt64(v)
+		case *big.Int:
+			rval.SetInt(v)
+		case *big.Float:
+			v.Rat(rval)
+		case *big.Rat:
+			rval.Set(v)
+		}
+		return val, nil
+	case *big.Int:
+		if node.Type != syntax.NodeNumber {
+			return val, newNodeErr(syntax.NodeNumber)
+		}
+		switch v := constant.Val(node.Value.(constant.Value)).(type) {
+		case int64:
+			rval.SetInt64(v)
+		case *big.Int:
+			rval.Set(v)
+		case *big.Float:
+			v.Int(rval)
+		case *big.Rat:
+			rval.Quo(v.Num(), v.Denom())
+		}
+		return val, nil
 	case stdenc.TextUnmarshaler:
 		if node.Type != syntax.NodeString {
 			return val, newNodeErr(syntax.NodeString)
@@ -116,20 +162,19 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 			return val, newErr(err)
 		}
 		return val, nil
-	case []byte:
+	case *[]byte:
 		if node.Type != syntax.NodeString {
 			return val, newNodeErr(syntax.NodeString)
 		}
 		val.Set(reflect.ValueOf([]byte(node.Value.(string))))
 		return val, nil
-	case url.URL:
+	case *url.URL:
 		if node.Type != syntax.NodeString {
 			return val, newNodeErr(syntax.NodeString)
 		}
 		if err := rval.UnmarshalBinary([]byte(node.Value.(string))); err != nil {
 			return val, newErr(err)
 		}
-		val.Set(reflect.ValueOf(rval))
 		return val, nil
 	}
 
