@@ -126,13 +126,7 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 	}
 
 	switch kind := val.Kind(); kind {
-	case reflect.Interface:
-		if val.Elem().Kind() == reflect.Invalid {
-			// This is a nil interface and we therefore can't marshal it
-			break
-		}
-		fallthrough
-	case reflect.Ptr:
+	case reflect.Interface, reflect.Ptr:
 		if val.IsNil() {
 			m, ok := marshaler.(NilMarshaler)
 			if !ok {
