@@ -543,12 +543,21 @@ func MakeLocalDate(t time.Time) LocalDate {
 	return LocalDate{Year: t.Year(), Month: t.Month(), Day: t.Day()}
 }
 
-func (date *LocalDate) Time(hour, min, sec, nsec int, loc *time.Location) time.Time {
+func (date LocalDate) Time(hour, min, sec, nsec int, loc *time.Location) time.Time {
 	return time.Date(date.Year, date.Month, date.Day, hour, min, sec, nsec, loc)
 }
 
-func (date *LocalDate) String() string {
-	return fmt.Sprintf("%d-%d-%d", date.Year, date.Month, date.Day)
+func (date LocalDate) String() string {
+	if date.Year == 0 {
+		date.Year = 1
+	}
+	if date.Month <= 0 {
+		date.Month = 1
+	}
+	if date.Day <= 0 {
+		date.Day = 1
+	}
+	return fmt.Sprintf("%04d-%02d-%02d", date.Year, date.Month, date.Day)
 }
 
 type LocalTime struct {
@@ -562,15 +571,15 @@ func MakeLocalTime(t time.Time) LocalTime {
 	return LocalTime{Hour: t.Hour(), Minute: t.Minute(), Second: t.Second(), Nanosecond: t.Nanosecond()}
 }
 
-func (t *LocalTime) Time(year int, month time.Month, day int, loc *time.Location) time.Time {
+func (t LocalTime) Time(year int, month time.Month, day int, loc *time.Location) time.Time {
 	return time.Date(year, month, day, t.Hour, t.Minute, t.Second, t.Nanosecond, loc)
 }
 
-func (t *LocalTime) String() string {
+func (t LocalTime) String() string {
 	if t.Nanosecond == 0 {
-		return fmt.Sprintf("%d:%d:%d", t.Hour, t.Minute, t.Second)
+		return fmt.Sprintf("%02d:%02d:%02d", t.Hour, t.Minute, t.Second)
 	}
-	return fmt.Sprintf("%d:%d:%d.%09d", t.Hour, t.Minute, t.Second, t.Nanosecond)
+	return fmt.Sprintf("%02d:%02d:%02d.%09d", t.Hour, t.Minute, t.Second, t.Nanosecond)
 }
 
 type LocalDateTime struct {
@@ -582,13 +591,10 @@ func MakeLocalDateTime(t time.Time) LocalDateTime {
 	return LocalDateTime{LocalDate: MakeLocalDate(t), LocalTime: MakeLocalTime(t)}
 }
 
-func (dt *LocalDateTime) Time(loc *time.Location) time.Time {
+func (dt LocalDateTime) Time(loc *time.Location) time.Time {
 	return time.Date(dt.Year, dt.Month, dt.Day, dt.Hour, dt.Minute, dt.Second, dt.Nanosecond, loc)
 }
 
-func (dt *LocalDateTime) String() string {
-	if dt.Nanosecond == 0 {
-		return fmt.Sprintf("%d-%d-%dT%d:%d:%d", dt.Year, dt.Month, dt.Day, dt.Hour, dt.Minute, dt.Second)
-	}
-	return fmt.Sprintf("%d-%d-%dT%d:%d:%d.%09d", dt.Year, dt.Month, dt.Day, dt.Hour, dt.Minute, dt.Second, dt.Nanosecond)
+func (dt LocalDateTime) String() string {
+	return dt.LocalDate.String() + "T" + dt.LocalTime.String()
 }
