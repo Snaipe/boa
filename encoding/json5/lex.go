@@ -384,7 +384,7 @@ func (state *lexerState) lexHex(l *Lexer) StateFunc {
 	num, err := l.AcceptUntil(func(r rune) bool {
 		return unicode.In(r, unicode.L, unicode.N)
 	})
-	if err != nil {
+	if err != nil && err != io.EOF {
 		return l.Error(err)
 	}
 	val, ok := new(big.Int).SetString(num, 16)
@@ -399,9 +399,10 @@ func (state *lexerState) lexNumber(l *Lexer) StateFunc {
 	num, err := l.AcceptUntil(func(r rune) bool {
 		return strings.IndexRune("0123456789eE+-.", r) != -1
 	})
-	if err != nil {
+	if err != nil && err != io.EOF {
 		return l.Error(err)
 	}
+	err = nil
 	if num == "" {
 		num = "0"
 	}
