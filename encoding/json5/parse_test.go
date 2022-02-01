@@ -24,7 +24,7 @@ func noop(lhs, rhs reflect.Value) (bool, error) {
 	return false, nil
 }
 
-func TestStandardSuite(t *testing.T) {
+func TestJSON5StandardSuite(t *testing.T) {
 	filepath.Walk("testdata/standard", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			t.Fatal(err)
