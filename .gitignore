@@ -1,0 +1,3 @@
+testdata/*_save.*
+cover.out
+*.new
