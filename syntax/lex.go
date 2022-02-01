@@ -38,6 +38,16 @@ type Token struct {
 	End Cursor
 }
 
+// IsAny returns true if the token is one of the specified token types.
+func (tok *Token) IsAny(types ...TokenType) bool {
+	for _, typ := range types {
+		if tok.Type == typ {
+			return true
+		}
+	}
+	return false
+}
+
 type TokenType string
 
 const (

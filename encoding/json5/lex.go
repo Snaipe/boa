@@ -28,6 +28,15 @@ const (
 	TokenMinus   TokenType = "'-'"
 )
 
+var punctAndWhitespace = []TokenType{
+	TokenWhitespace,
+	TokenNewline,
+	TokenComment,
+	TokenInlineComment,
+	TokenComma,
+	TokenColon,
+}
+
 const (
 	lineSep = '\u2028'
 	parSep  = '\u2029'

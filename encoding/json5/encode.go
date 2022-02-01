@@ -166,6 +166,9 @@ func (m *marshaler) writeIndent(indent string, level int) error {
 func (m *marshaler) MarshalValue(v reflect.Value) (bool, error) {
 	switch marshaler := v.Interface().(type) {
 	case json.Marshaler:
+		if v.Kind() == reflect.Ptr && v.IsNil() {
+			return true, m.MarshalNil()
+		}
 		txt, err := marshaler.MarshalJSON()
 		if err != nil {
 			return false, err

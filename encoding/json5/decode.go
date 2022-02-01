@@ -26,9 +26,10 @@ type unmarshaler struct {
 }
 
 func (unmarshaler) UnmarshalValue(val reflect.Value, node *Node) (bool, error) {
-	switch unmarshaler := val.Interface().(type) {
+	switch unmarshaler := val.Addr().Interface().(type) {
 	case json.Unmarshaler:
-		data, err := MarshalJSON(node)
+		trimmed := node.Trim(punctAndWhitespace...)
+		data, err := MarshalJSON(&trimmed)
 		if err != nil {
 			return false, err
 		}

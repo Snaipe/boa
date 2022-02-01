@@ -111,6 +111,23 @@ func (node *Node) Marshal(marshaler Marshaler) error {
 	return nil
 }
 
+func (node *Node) Trim(discard ...TokenType) Node {
+	dup := *node
+	dup.Suffix = nil
+	if len(dup.Tokens) > 0 {
+		lo, hi := 0, len(dup.Tokens)-1
+		for dup.Tokens[lo].IsAny(discard...) {
+			lo++
+		}
+		for dup.Tokens[hi].IsAny(discard...) {
+			hi--
+		}
+		dup.Tokens = dup.Tokens[lo : hi+1]
+	}
+	dup.Sibling = nil
+	return dup
+}
+
 type Parser interface {
 	Parse() (*Node, error)
 }

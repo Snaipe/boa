@@ -40,6 +40,9 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 	}
 
 	newErr := func(err error) error {
+		if err == nil {
+			return nil
+		}
 		return &encoding.LoadError{Cursor: node.Position, Target: target(), Err: err}
 	}
 
