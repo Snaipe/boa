@@ -92,15 +92,21 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 
 	switch m := val.Interface().(type) {
 	case *big.Float:
-		return marshaler.MarshalNumber(constant.Make(m))
+		if !val.IsNil() {
+			return marshaler.MarshalNumber(constant.Make(m))
+		}
 	case big.Float:
 		return marshaler.MarshalNumber(constant.Make(&m))
 	case *big.Rat:
-		return marshaler.MarshalNumber(constant.Make(m))
+		if !val.IsNil() {
+			return marshaler.MarshalNumber(constant.Make(m))
+		}
 	case big.Rat:
 		return marshaler.MarshalNumber(constant.Make(&m))
 	case *big.Int:
-		return marshaler.MarshalNumber(constant.Make(m))
+		if !val.IsNil() {
+			return marshaler.MarshalNumber(constant.Make(m))
+		}
 	case big.Int:
 		return marshaler.MarshalNumber(constant.Make(&m))
 	case encoding.TextMarshaler:
@@ -112,7 +118,9 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 	case []byte:
 		return marshaler.MarshalString(BytesToString(m))
 	case *url.URL:
-		return marshaler.MarshalString(m.String())
+		if !val.IsNil() {
+			return marshaler.MarshalString(m.String())
+		}
 	case url.URL:
 		return marshaler.MarshalString(m.String())
 	}
