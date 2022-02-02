@@ -77,7 +77,7 @@ func (m *marshaler) depth(offset int) int {
 	// Because of the weird indentation rules, the top-level table
 	// has the same indentation level as its subtables. Therefore,
 	// depth -1 must be represented as depth 0 for values.
-	if m.curdepth + offset < 0 {
+	if m.curdepth+offset < 0 {
 		return 0
 	}
 	return m.curdepth + offset
@@ -379,7 +379,7 @@ func (m *marshaler) MarshalListElemPost(l, v reflect.Value, i int) error {
 	if !listofmap {
 		// Always emit a trailing comma when listing one element per line,
 		// otherwise omit when it's the last element of the list.
-		if m.valdepth == 1 || i != l.Len() - 1 {
+		if m.valdepth == 1 || i != l.Len()-1 {
 			if _, err := io.WriteString(m.wr, ","); err != nil {
 				return err
 			}

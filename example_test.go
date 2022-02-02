@@ -273,8 +273,8 @@ func ExampleSetDefaultOptions() {
 
 	config := Config{
 		FirstName: "Franklin",
-		LastName: "Mathieu",
-		Nickname: "Snaipe",
+		LastName:  "Mathieu",
+		Nickname:  "Snaipe",
 	}
 
 	boa.SetDefaultOptions(

@@ -264,7 +264,7 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 type pathError struct {
 	Full []interface{}
 	Path []interface{}
-	Err error
+	Err  error
 }
 
 func (e *pathError) Error() string {

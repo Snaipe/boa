@@ -18,32 +18,32 @@ import (
 func TestTOMLFull(t *testing.T) {
 
 	type Base struct {
-		Int              int
-		Int8             int8
-		Int16            int16
-		Int32            int32
-		Int64            int64
-		Uint             uint
-		Uintptr          uintptr
-		Uint8            uint8
-		Uint16           uint16
-		Uint32           uint32
-		Uint64           uint64
-		String           string
-		Map              map[string]interface{} // interleave compound types to test stable sorting
-		Float32          float32
-		Float64          float64
-		Bool             bool
-		ListOfTables     []map[string]interface{} // interleave compound types to test stable sorting
-		BigInt           big.Int
-		BigFloat         big.Float
-		BigRat           big.Rat
-		URL              url.URL
-		Time             time.Time
-		LocalDateTime    LocalDateTime
-		LocalDate        LocalDate
-		LocalTime        LocalTime
-		List             []interface{}
+		Int           int
+		Int8          int8
+		Int16         int16
+		Int32         int32
+		Int64         int64
+		Uint          uint
+		Uintptr       uintptr
+		Uint8         uint8
+		Uint16        uint16
+		Uint32        uint32
+		Uint64        uint64
+		String        string
+		Map           map[string]interface{} // interleave compound types to test stable sorting
+		Float32       float32
+		Float64       float64
+		Bool          bool
+		ListOfTables  []map[string]interface{} // interleave compound types to test stable sorting
+		BigInt        big.Int
+		BigFloat      big.Float
+		BigRat        big.Rat
+		URL           url.URL
+		Time          time.Time
+		LocalDateTime LocalDateTime
+		LocalDate     LocalDate
+		LocalTime     LocalTime
+		List          []interface{}
 	}
 
 	type BaseWithPtr struct {
@@ -86,15 +86,15 @@ func TestTOMLFull(t *testing.T) {
 	type ValWithPtr struct {
 		BaseWithPtr
 		Struct BaseWithPtr
-		Ptr *BaseWithPtr
+		Ptr    *BaseWithPtr
 	}
 
-	tcases := []struct{
+	tcases := []struct {
 		Name string
 		Val  interface{}
 	}{
-		{ "full", &ValWithPtr{} },
-		{ "zero", &Val{} },
+		{"full", &ValWithPtr{}},
+		{"zero", &Val{}},
 	}
 
 	for _, tc := range tcases {
