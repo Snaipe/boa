@@ -1,0 +1,54 @@
+int = 0
+int_8 = 0
+int_16 = 0
+int_32 = 0
+int_64 = 0
+uint = 0
+uintptr = 0
+uint_8 = 0
+uint_16 = 0
+uint_32 = 0
+uint_64 = 0
+string = ""
+float_32 = 0.0
+float_64 = 0.0
+bool = false
+big_int = 0
+big_float = 0.0
+big_rat = 0.0
+url = ""
+time = 0001-01-01T00:00:00Z
+local_date_time = 0001-01-01T00:00:00
+local_date = 0001-01-01
+local_time = 00:00:00
+list = []
+
+[map]
+
+[struct]
+int = 0
+int_8 = 0
+int_16 = 0
+int_32 = 0
+int_64 = 0
+uint = 0
+uintptr = 0
+uint_8 = 0
+uint_16 = 0
+uint_32 = 0
+uint_64 = 0
+string = ""
+float_32 = 0.0
+float_64 = 0.0
+bool = false
+big_int = 0
+big_float = 0.0
+big_rat = 0.0
+url = ""
+time = 0001-01-01T00:00:00Z
+local_date_time = 0001-01-01T00:00:00
+local_date = 0001-01-01
+local_time = 00:00:00
+list = []
+
+  [struct.map]
