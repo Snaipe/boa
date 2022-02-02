@@ -493,7 +493,16 @@ func (state *lexerState) lexNumberOrDateOrKey(l *Lexer) StateFunc {
 				continue
 			}
 			if lay.convert != nil {
-				l.Emit(TokenDateTime, lay.convert(val))
+				switch out := lay.convert(val).(type) {
+				case LocalDateTime:
+					l.Emit(TokenDateTime, out)
+				case LocalDate:
+					l.Emit(TokenDateTime, out)
+				case LocalTime:
+					l.Emit(TokenDateTime, out)
+				default:
+					panic("unexpected time layout type")
+				}
 			} else {
 				l.Emit(TokenDateTime, val)
 			}

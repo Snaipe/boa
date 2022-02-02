@@ -42,7 +42,7 @@ func (unmarshaler) UnmarshalValue(val reflect.Value, node *Node) (bool, error) {
 		if node.Type != NodeDateTime {
 			return false, newNodeErr(NodeDateTime)
 		}
-		rval := reflect.ValueOf(node.Value).Elem()
+		rval := reflect.ValueOf(node.Value)
 		if rval.Type().AssignableTo(val.Type()) {
 			val.Set(rval)
 			return true, nil
