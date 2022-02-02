@@ -25,11 +25,11 @@ type Unmarshaler interface {
 type UnmarshalFunc func(val reflect.Value, node *syntax.Node) (bool, error)
 
 func Unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingConvention, unmarshaler Unmarshaler) error {
-	_, err := unmarshal(val, node, convention, nil, unmarshaler)
+	_, err := unmarshal(val, node, convention, nil, false, unmarshaler)
 	return err
 }
 
-func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingConvention, path []string, unmarshaler Unmarshaler) (reflect.Value, error) {
+func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingConvention, path []string, merge bool, unmarshaler Unmarshaler) (reflect.Value, error) {
 	typ := val.Type()
 
 	target := func() string {
@@ -56,34 +56,21 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 			recurse bool
 		)
 		switch node.Type {
-		case syntax.NodeBool:
+		case syntax.NodeBool, syntax.NodeString, syntax.NodeNil:
 			out := node.Value.(bool)
 			rval = reflect.ValueOf(&out).Elem()
-		case syntax.NodeString:
-			out := node.Value.(string)
-			rval = reflect.ValueOf(&out).Elem()
 		case syntax.NodeNumber:
-			switch constv := node.Value.(type) {
+			switch out := node.Value.(type) {
 			case constant.Value:
-				switch constv.Kind() {
-				case constant.Int:
-					rval = ConstantToInt(constv)
-				case constant.Float:
-					rval = ConstantToFloat(constv)
-				default:
-					panic(fmt.Sprintf("unsupported constant kind %v for number node", constv.Kind()))
-				}
-			case float64: // for infinites
-				rval = reflect.ValueOf(&constv).Elem()
+				rval = reflect.ValueOf(&out).Elem()
+			case float64: // for infinities
+				rval = reflect.ValueOf(&out).Elem()
 			default:
-				panic(fmt.Sprintf("unsupported node value %T for number node", constv))
+				panic(fmt.Sprintf("unsupported node value %T for number node", out))
 			}
 		case syntax.NodeDateTime:
 			out := node.Value
 			rval = reflect.ValueOf(&out).Elem().Elem()
-		case syntax.NodeNil:
-			var out interface{}
-			rval = reflect.ValueOf(&out).Elem()
 		case syntax.NodeMap:
 			var out map[interface{}]interface{}
 			rval = reflect.ValueOf(&out).Elem()
@@ -93,11 +80,11 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 			rval = reflect.ValueOf(&out).Elem()
 			recurse = true
 		default:
-			return val, fmt.Errorf("unsupported node type %v", node.Type)
+			return rval, fmt.Errorf("unsupported node type %v", node.Type)
 		}
 
 		if recurse {
-			_, err := unmarshal(rval, node, convention, path, unmarshaler)
+			_, err := unmarshal(rval, node, convention, path, merge, unmarshaler)
 			if err != nil {
 				return rval, err
 			}
@@ -111,74 +98,8 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 		}
 	}
 
-	switch rval := val.Addr().Interface().(type) {
-	case *big.Float:
-		if node.Type != syntax.NodeNumber {
-			return val, newNodeErr(syntax.NodeNumber)
-		}
-		switch v := constant.Val(node.Value.(constant.Value)).(type) {
-		case int64:
-			rval.SetInt64(v)
-		case *big.Int:
-			rval.SetInt(v)
-		case *big.Float:
-			rval.Set(v)
-		case *big.Rat:
-			rval.SetRat(v)
-		}
-		return val, nil
-	case *big.Rat:
-		if node.Type != syntax.NodeNumber {
-			return val, newNodeErr(syntax.NodeNumber)
-		}
-		switch v := constant.Val(node.Value.(constant.Value)).(type) {
-		case int64:
-			rval.SetInt64(v)
-		case *big.Int:
-			rval.SetInt(v)
-		case *big.Float:
-			v.Rat(rval)
-		case *big.Rat:
-			rval.Set(v)
-		}
-		return val, nil
-	case *big.Int:
-		if node.Type != syntax.NodeNumber {
-			return val, newNodeErr(syntax.NodeNumber)
-		}
-		switch v := constant.Val(node.Value.(constant.Value)).(type) {
-		case int64:
-			rval.SetInt64(v)
-		case *big.Int:
-			rval.Set(v)
-		case *big.Float:
-			v.Int(rval)
-		case *big.Rat:
-			rval.Quo(v.Num(), v.Denom())
-		}
-		return val, nil
-	case stdenc.TextUnmarshaler:
-		if node.Type != syntax.NodeString {
-			return val, newNodeErr(syntax.NodeString)
-		}
-		if err := rval.UnmarshalText([]byte(node.Value.(string))); err != nil {
-			return val, newErr(err)
-		}
-		return val, nil
-	case *[]byte:
-		if node.Type != syntax.NodeString {
-			return val, newNodeErr(syntax.NodeString)
-		}
-		val.Set(reflect.ValueOf([]byte(node.Value.(string))))
-		return val, nil
-	case *url.URL:
-		if node.Type != syntax.NodeString {
-			return val, newNodeErr(syntax.NodeString)
-		}
-		if err := rval.UnmarshalBinary([]byte(node.Value.(string))); err != nil {
-			return val, newErr(err)
-		}
-		return val, nil
+	if scalar, err := SetScalar(val, node.Value, node.Type); scalar {
+		return val, err
 	}
 
 	switch kind := val.Kind(); kind {
@@ -191,64 +112,10 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 			if val.IsNil() {
 				val.Set(reflect.New(typ.Elem()))
 			}
-			if _, err := unmarshal(val.Elem(), node, convention, path, unmarshaler); err != nil {
+			if _, err := unmarshal(val.Elem(), node, convention, path, merge, unmarshaler); err != nil {
 				return val, err
 			}
 		}
-
-	case reflect.Bool:
-		if node.Type != syntax.NodeBool {
-			return val, newNodeErr(syntax.NodeBool)
-		}
-		val.SetBool(node.Value.(bool))
-
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		if node.Type != syntax.NodeNumber {
-			return val, newNodeErr(syntax.NodeNumber)
-		}
-		i, exact := constant.Int64Val(node.Value.(constant.Value))
-		if !exact {
-			return val, newErr(fmt.Errorf("cannot assign %v to %v: value does not fit", node.Value, typ))
-		}
-		val.SetInt(i)
-
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		if node.Type != syntax.NodeNumber {
-			return val, newNodeErr(syntax.NodeNumber)
-		}
-		i, exact := constant.Uint64Val(node.Value.(constant.Value))
-		if !exact {
-			return val, newErr(fmt.Errorf("cannot assign %v to %v: value does not fit", node.Value, typ))
-		}
-		val.SetUint(i)
-
-	case reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128:
-		if node.Type != syntax.NodeNumber {
-			return val, newNodeErr(syntax.NodeNumber)
-		}
-		switch constv := node.Value.(type) {
-		case constant.Value:
-			f, _ := constant.Float64Val(constv)
-			if kind == reflect.Complex64 || kind == reflect.Complex128 {
-				val.SetComplex(complex(f, 0))
-			} else {
-				val.SetFloat(f)
-			}
-		case float64:
-			if kind == reflect.Complex64 || kind == reflect.Complex128 {
-				val.SetComplex(complex(constv, 0))
-			} else {
-				val.SetFloat(constv)
-			}
-		default:
-			panic(fmt.Sprintf("unsupported node value %T for number node", constv))
-		}
-
-	case reflect.String:
-		if node.Type != syntax.NodeString {
-			return val, newNodeErr(syntax.NodeString)
-		}
-		val.SetString(node.Value.(string))
 
 	case reflect.Array, reflect.Slice:
 		if node.Type == syntax.NodeNil {
@@ -272,7 +139,7 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 			if idx >= val.Len() && kind == reflect.Array {
 				return val, newErr(fmt.Errorf("cannot assign %v to index %d: index out of bounds", node.Value, idx))
 			}
-			if _, err := unmarshal(val.Index(idx), n, convention, append(path, fmt.Sprintf("[%d]", idx)), unmarshaler); err != nil {
+			if _, err := unmarshal(val.Index(idx), n, convention, append(path, fmt.Sprintf("[%d]", idx)), merge, unmarshaler); err != nil {
 				return val, err
 			}
 			idx++
@@ -286,7 +153,7 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 		if node.Type != syntax.NodeMap {
 			return val, newNodeErr(syntax.NodeMap)
 		}
-		if val.IsNil() {
+		if val.IsNil() || !merge {
 			val.Set(reflect.MakeMap(typ))
 		}
 		for key := node.Child; key != nil; key = key.Sibling {
@@ -298,15 +165,11 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 				for _, e := range at {
 					p = append(p, fmt.Sprintf("[%v]", e))
 				}
-				rval, err := toValue(value, p)
-				if err != nil {
-					return val, err
-				}
-				if err := Set(val, rval, convention, unmarshaler, at...); err != nil {
+				if err := Set(val, value, convention, unmarshaler, at...); err != nil {
 					return val, err
 				}
 			} else {
-				rkey, err := unmarshal(reflect.New(typ.Key()).Elem(), key, convention, path, unmarshaler)
+				rkey, err := unmarshal(reflect.New(typ.Key()).Elem(), key, convention, path, merge, unmarshaler)
 				if err != nil {
 					return val, err
 				}
@@ -318,7 +181,7 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 				}
 				set := !mval.IsValid()
 
-				rval, err = unmarshal(rval, value, convention, append(path, fmt.Sprintf("[%v]", rkey.Interface())), unmarshaler)
+				rval, err = unmarshal(rval, value, convention, append(path, fmt.Sprintf("[%v]", rkey.Interface())), merge, unmarshaler)
 				if err != nil {
 					return val, err
 				}
@@ -333,6 +196,9 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 
 		if node.Type != syntax.NodeMap {
 			return val, newNodeErr(syntax.NodeMap)
+		}
+		if !merge {
+			val.Set(reflect.Zero(typ))
 		}
 
 		_, fields := VisibleFields(val, convention, unmarshaler)
@@ -357,11 +223,7 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 				for _, e := range at {
 					path = append(path, fmt.Sprintf("[%v]", e))
 				}
-				rval, err := toValue(value, path)
-				if err != nil {
-					return val, err
-				}
-				if err := Set(val, rval, convention, unmarshaler, at...); err != nil {
+				if err := Set(val, value, convention, unmarshaler, at...); err != nil {
 					return val, err
 				}
 				continue
@@ -373,18 +235,24 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 			if !ok {
 				continue
 			}
-			_, err := unmarshal(field.Value, value, field.Options.Naming, append(path, fmt.Sprintf(".%v", field.Name)), unmarshaler)
+			_, err := unmarshal(field.Value, value, field.Options.Naming, append(path, fmt.Sprintf(".%v", field.Name)), merge, unmarshaler)
 			if err != nil {
 				return val, err
 			}
 		}
 
 	case reflect.Interface:
-		rval, err := toValue(node, path)
-		if err != nil {
-			return val, err
+		if merge && !val.IsNil() {
+			if _, err := unmarshal(val.Elem(), node, convention, path, merge, unmarshaler); err != nil {
+				return val, err
+			}
+		} else {
+			rval, err := toValue(node, path)
+			if err != nil {
+				return val, err
+			}
+			val.Set(rval)
 		}
-		val.Set(rval)
 
 	default:
 		return val, fmt.Errorf("cannot assign %v to %v: unsupported type", node.Value, typ)
@@ -393,55 +261,63 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 	return val, nil
 }
 
-func Set(val, newval reflect.Value, convention encoding.NamingConvention, unmarshaler Unmarshaler, at ...interface{}) error {
-	if !newval.IsValid() || !val.IsValid() {
+type pathError struct {
+	Full []interface{}
+	Path []interface{}
+	Err error
+}
+
+func (e *pathError) Error() string {
+	var out strings.Builder
+	out.WriteString("<value>")
+	for _, p := range e.Path {
+		switch e := p.(type) {
+		case int:
+			fmt.Fprintf(&out, "[%d]", e)
+		default:
+			fmt.Fprintf(&out, ".%v", e)
+		}
+	}
+	fmt.Fprintf(&out, ": %v", e.Err)
+	return out.String()
+}
+
+func (e *pathError) Unwrap() error {
+	return e.Err
+}
+
+func Set(val reflect.Value, node *syntax.Node, convention encoding.NamingConvention, unmarshaler Unmarshaler, at ...interface{}) (outerr error) {
+	if !val.IsValid() {
 		panic("cannot call Set with invalid value")
 	}
+
+	wrapErr := func(err error) error {
+		if err == nil {
+			return nil
+		}
+		if pe, ok := err.(*pathError); ok {
+			pe.Path = at[:len(at)-len(pe.Full)+1]
+			pe.Full = at
+		} else {
+			err = &pathError{Full: at, Err: err}
+		}
+		return err
+	}
+
+	switch kind := val.Kind(); kind {
+	case reflect.Ptr:
+		if val.IsNil() {
+			val.Set(reflect.New(val.Type().Elem()))
+		}
+		return Set(val.Elem(), node, convention, unmarshaler, at...)
+	}
+
 	if len(at) == 0 {
-		for newval.Kind() == reflect.Interface {
-			newval = newval.Elem()
+		newval, err := unmarshal(val, node, convention, nil, true, unmarshaler)
+		if err == nil {
+			val.Set(newval)
 		}
-		v := val
-		for ; v.IsValid() && v.Kind() == reflect.Interface; v = v.Elem() {
-			continue
-		}
-		kind := v.Kind()
-		// Some special cases:
-		switch {
-		// Floating-point numbers are allowed to be converted to complex numbers
-		case kind == reflect.Complex64 && (newval.Kind() == reflect.Float32 || newval.Kind() == reflect.Float64):
-			val.SetComplex(complex(newval.Float(), 0))
-		case kind == reflect.Complex128 && (newval.Kind() == reflect.Float32 || newval.Kind() == reflect.Float64):
-			val.SetComplex(complex(newval.Float(), 0))
-		// Maps get merged
-		case kind == reflect.Map && newval.Kind() == reflect.Map:
-			for _, k := range newval.MapKeys() {
-				v.SetMapIndex(k, newval.MapIndex(k))
-			}
-		default:
-			// Handle other standard types
-			if v.IsValid() {
-				switch v.Type() {
-				case reflect.TypeOf((*url.URL)(nil)):
-					var u url.URL
-					if err := u.UnmarshalBinary([]byte(newval.Interface().(string))); err != nil {
-						return err
-					}
-					val.Set(reflect.ValueOf(&u))
-					return nil
-				case reflect.TypeOf(url.URL{}):
-					var u url.URL
-					if err := u.UnmarshalBinary([]byte(newval.Interface().(string))); err != nil {
-						return err
-					}
-					val.Set(reflect.ValueOf(u))
-					return nil
-				}
-			}
-			// For everything else, try normal conversion rules
-			val.Set(newval.Convert(val.Type()))
-		}
-		return nil
+		return err
 	}
 
 	elem := at[0]
@@ -467,10 +343,10 @@ func Set(val, newval reflect.Value, convention encoding.NamingConvention, unmars
 			rval.Set(reflect.New(typ.Elem()))
 			val.Set(rval)
 		}
-		return Set(rval.Elem(), newval, convention, unmarshaler, at...)
+		return Set(rval.Elem(), node, convention, unmarshaler, at...)
 	case reflect.Map:
 		if !velem.Type().AssignableTo(typ.Key()) {
-			return fmt.Errorf("cannot index %v with %T %q", typ, elem, elem)
+			return wrapErr(fmt.Errorf("cannot index %v with %T %q", typ, elem, elem))
 		}
 		if rval.IsNil() {
 			rval.Set(reflect.MakeMap(typ))
@@ -481,20 +357,20 @@ func Set(val, newval reflect.Value, convention encoding.NamingConvention, unmars
 		if vval.IsValid() {
 			newvval.Set(vval)
 		}
-		err := Set(newvval, newval, convention, unmarshaler, at[1:]...)
+		err := Set(newvval, node, convention, unmarshaler, at[1:]...)
 		if err != nil {
-			return err
+			return wrapErr(err)
 		}
 		rval.SetMapIndex(velem, newvval)
 		return nil
 	case reflect.Slice, reflect.Array:
 		idx, ok := elem.(int)
 		if !ok {
-			return fmt.Errorf("cannot index slice or array with %T %q", elem, elem)
+			return wrapErr(fmt.Errorf("cannot index slice or array with %T %q", elem, elem))
 		}
 		if rval.Len() <= idx {
 			if kind == reflect.Array {
-				return fmt.Errorf("cannot index array at %d: index out of bounds", idx)
+				return wrapErr(fmt.Errorf("cannot index array at %d: index out of bounds", idx))
 			}
 			ncap := rval.Cap()
 			for idx >= ncap {
@@ -504,31 +380,233 @@ func Set(val, newval reflect.Value, convention encoding.NamingConvention, unmars
 			for i := 0; i < rval.Len(); i++ {
 				nval.Index(i).Set(rval.Index(i))
 			}
-			if err := Set(nval.Index(idx), newval, convention, unmarshaler, at[1:]...); err != nil {
-				return err
+			if err := Set(nval.Index(idx), node, convention, unmarshaler, at[1:]...); err != nil {
+				return wrapErr(err)
 			}
 			val.Set(nval)
 			return nil
 		}
-		if err := Set(rval.Index(idx), newval, convention, unmarshaler, at[1:]...); err != nil {
-			return err
+		if err := Set(rval.Index(idx), node, convention, unmarshaler, at[1:]...); err != nil {
+			return wrapErr(err)
 		}
 		return nil
 	case reflect.Struct:
 		fname, ok := elem.(string)
 		if !ok {
-			return fmt.Errorf("cannot find struct field with non-string name type %T", elem)
+			return nil
 		}
 
 		_, fields := VisibleFields(rval, convention, unmarshaler)
 
 		if field, ok := fields[fname]; ok {
-			return Set(field.Value, newval, field.Options.Naming, unmarshaler, at[1:]...)
+			return wrapErr(Set(field.Value, node, field.Options.Naming, unmarshaler, at[1:]...))
 		}
-		return fmt.Errorf("cannot find struct field with name %v", fname)
+		return nil
 	default:
-		return fmt.Errorf("cannot index %v with %T key %q", typ, elem, elem)
+		return wrapErr(fmt.Errorf("cannot index %v with %T key %q", typ, elem, elem))
 	}
+}
+
+func SetScalar(to reflect.Value, value interface{}, nodetype syntax.NodeType) (bool, error) {
+	if !to.IsValid() {
+		return false, fmt.Errorf("invalid value is not a scalar")
+	}
+
+	newNodeErr := func(exp syntax.NodeType) error {
+		return fmt.Errorf("config has %v, but expected %v instead", nodetype, exp)
+	}
+
+	if to.CanAddr() {
+		switch ptr := to.Addr().Interface().(type) {
+		case *big.Float:
+			if nodetype != syntax.NodeNumber {
+				return true, newNodeErr(syntax.NodeNumber)
+			}
+			switch constv := value.(type) {
+			case constant.Value:
+				switch v := constant.Val(constv).(type) {
+				case int64:
+					ptr.SetInt64(v)
+				case *big.Int:
+					ptr.SetInt(v)
+				case *big.Float:
+					ptr.Set(v)
+				case *big.Rat:
+					ptr.SetRat(v)
+				default:
+					panic(fmt.Sprintf("constant.Val returned an unexpected type %T", v))
+				}
+			case float64: // infinity and NaN
+				ptr.Set(big.NewFloat(constv))
+			default:
+				panic(fmt.Sprintf("unsupported node value %T for number node", constv))
+			}
+			return true, nil
+		case *big.Rat:
+			if nodetype != syntax.NodeNumber {
+				return true, newNodeErr(syntax.NodeNumber)
+			}
+			switch constv := value.(type) {
+			case constant.Value:
+				switch v := constant.Val(value.(constant.Value)).(type) {
+				case int64:
+					ptr.SetInt64(v)
+				case *big.Int:
+					ptr.SetInt(v)
+				case *big.Float:
+					v.Rat(ptr)
+				case *big.Rat:
+					ptr.Set(v)
+				}
+			case float64: // infinity and NaN
+				return true, fmt.Errorf("cannot represent %f in *big.Rat", constv)
+			default:
+				panic(fmt.Sprintf("unsupported node value %T for number node", constv))
+			}
+			return true, nil
+		case *big.Int:
+			if nodetype != syntax.NodeNumber {
+				return true, newNodeErr(syntax.NodeNumber)
+			}
+			switch constv := value.(type) {
+			case constant.Value:
+				switch v := constant.Val(value.(constant.Value)).(type) {
+				case int64:
+					ptr.SetInt64(v)
+				case *big.Int:
+					ptr.Set(v)
+				case *big.Float:
+					v.Int(ptr)
+				case *big.Rat:
+					ptr.Quo(v.Num(), v.Denom())
+				}
+			case float64: // infinity and NaN
+				return true, fmt.Errorf("cannot represent %f in *big.Int", constv)
+			default:
+				panic(fmt.Sprintf("unsupported node value %T for number node", constv))
+			}
+			return true, nil
+		case stdenc.TextUnmarshaler:
+			if nodetype != syntax.NodeString {
+				return true, newNodeErr(syntax.NodeString)
+			}
+			if err := ptr.UnmarshalText([]byte(value.(string))); err != nil {
+				return true, err
+			}
+			return true, nil
+		case *[]byte:
+			if nodetype != syntax.NodeString {
+				return true, newNodeErr(syntax.NodeString)
+			}
+			to.Set(reflect.ValueOf([]byte(value.(string))))
+			return true, nil
+		case *url.URL:
+			if nodetype != syntax.NodeString {
+				return true, newNodeErr(syntax.NodeString)
+			}
+			if err := ptr.UnmarshalBinary([]byte(value.(string))); err != nil {
+				return true, err
+			}
+			return true, nil
+		}
+	}
+
+	// Untyped interface{} gets filled in with an appropriate scalar value.
+	if to.Type() == reflect.TypeOf((*interface{})(nil)).Elem() {
+		if value != nil {
+			to.Set(ToScalar(reflect.ValueOf(value)))
+			return true, nil
+		} else if nodetype == syntax.NodeNil {
+			to.Set(reflect.Zero(to.Type()))
+			return true, nil
+		}
+	}
+
+	switch kind := to.Kind(); kind {
+
+	case reflect.Bool:
+		if nodetype != syntax.NodeBool {
+			return true, newNodeErr(syntax.NodeBool)
+		}
+		to.SetBool(value.(bool))
+		return true, nil
+
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if nodetype != syntax.NodeNumber {
+			return true, newNodeErr(syntax.NodeNumber)
+		}
+		i, exact := constant.Int64Val(value.(constant.Value))
+		if !exact {
+			return true, fmt.Errorf("cannot assign %v to %v: value does not fit", value, to.Type())
+		}
+		to.SetInt(i)
+		return true, nil
+
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		if nodetype != syntax.NodeNumber {
+			return true, newNodeErr(syntax.NodeNumber)
+		}
+		i, exact := constant.Uint64Val(value.(constant.Value))
+		if !exact {
+			return true, fmt.Errorf("cannot assign %v to %v: value does not fit", value, to.Type())
+		}
+		to.SetUint(i)
+		return true, nil
+
+	case reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128:
+		if nodetype != syntax.NodeNumber {
+			return true, newNodeErr(syntax.NodeNumber)
+		}
+		switch constv := value.(type) {
+		case constant.Value:
+			f, _ := constant.Float64Val(constv)
+			if kind == reflect.Complex64 || kind == reflect.Complex128 {
+				to.SetComplex(complex(f, 0))
+			} else {
+				to.SetFloat(f)
+			}
+		case float64:
+			if kind == reflect.Complex64 || kind == reflect.Complex128 {
+				to.SetComplex(complex(constv, 0))
+			} else {
+				to.SetFloat(constv)
+			}
+		default:
+			panic(fmt.Sprintf("unsupported node value %T for number node", constv))
+		}
+		return true, nil
+
+	case reflect.String:
+		if nodetype != syntax.NodeString {
+			return true, newNodeErr(syntax.NodeString)
+		}
+		to.SetString(value.(string))
+		return true, nil
+
+	}
+
+	return false, fmt.Errorf("%v is not a scalar", to.Type())
+}
+
+func ToScalar(val reflect.Value) reflect.Value {
+	switch out := val.Interface().(type) {
+	case bool:
+		return reflect.ValueOf(&out).Elem()
+	case string:
+		return reflect.ValueOf(&out).Elem()
+	case constant.Value:
+		switch out.Kind() {
+		case constant.Int:
+			return ConstantToInt(out)
+		case constant.Float:
+			return ConstantToFloat(out)
+		default:
+			panic(fmt.Sprintf("unsupported constant kind %v for number node", out.Kind()))
+		}
+	case float64: // for infinites
+		return reflect.ValueOf(&out).Elem()
+	}
+	return val
 }
 
 // ConstantToInt returns an int-like value from a constant. It will return an
@@ -559,4 +637,12 @@ func ConstantToFloat(constv constant.Value) reflect.Value {
 	}
 	out := constant.Val(constv)
 	return reflect.ValueOf(&out).Elem().Elem()
+}
+
+func IsList(typ reflect.Type) bool {
+	return typ.Kind() == reflect.Slice || typ.Kind() == reflect.Array
+}
+
+func IsMap(typ reflect.Type) bool {
+	return typ.Kind() == reflect.Map || typ.Kind() == reflect.Struct
 }
