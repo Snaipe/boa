@@ -69,11 +69,21 @@ In addition, all configuration parsers have the following properties:
 
 ## Supported tags
 
+<!--
+NOTE: The values in the Tag column below contain an invisible word-joiner character
+(U+2060) after the first double-quote (") character. This is done to prevent
+any unfortunate line breaks in the middle of the escaped value, but might mess up
+some editors.
+
+To insert these characters in vim, position the cursor where the character needs
+to be inserted, enter insert mode, press Ctrl-V, then u2060.
+-->
+
 | Tag               | Description
 |-------------------|-------------
-| `name:"<name>"`   | Set key name.
-| `help:"<help>"`   | Set documentation; appears as comment in the config.
-| `naming:"<name>"` | Set naming convention for key and subkeys.
+| `name:"⁠<name>"`   | Set key name.
+| `help:"⁠<help>"`   | Set documentation; appears as comment in the config.
+| `naming:"⁠<name>"` | Set naming convention for key and subkeys.
 | `inline`          | Inline field. All sub-fields will be treated as if they were in the containing struct itself. Does the same as embedding the field.
 | `-`               | Ignore field.
 
