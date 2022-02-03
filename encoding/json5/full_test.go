@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"snai.pe/boa/internal/testutil"
 )
 
 func TestJSON5Full(t *testing.T) {
@@ -95,6 +97,7 @@ func TestJSON5Full(t *testing.T) {
 			t.Log("original:", path)
 			t.Log("re-encoded:", newpath)
 			if !bytes.Equal(out.Bytes(), expected) {
+				testutil.GitDiffNoIndex(t, path, newpath)
 				t.Fatalf("Re-encoded json5 differs from original")
 			}
 		})

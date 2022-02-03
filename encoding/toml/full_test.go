@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"snai.pe/boa/internal/testutil"
 )
 
 func TestTOMLFull(t *testing.T) {
@@ -120,6 +122,7 @@ func TestTOMLFull(t *testing.T) {
 				t.Fatal(err)
 			}
 			if !bytes.Equal(out.Bytes(), expected) {
+				testutil.GitDiffNoIndex(t, path, newpath)
 				t.Fatalf("Re-encoded toml differs from original")
 			}
 		})
