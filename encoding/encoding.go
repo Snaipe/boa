@@ -8,6 +8,8 @@ package encoding
 import (
 	"encoding"
 	"fmt"
+	"io"
+	"io/fs"
 
 	"snai.pe/boa/syntax"
 )
@@ -79,6 +81,18 @@ type DecoderOptions struct {
 
 // DecoderOption represents an option common to all decoders in boa.
 type DecoderOption func(*DecoderOptions)
+
+// StatableReader is a reader that can be Stat()-ed.
+type StatableReader interface {
+	io.Reader
+	Stat() (fs.FileInfo, error)
+}
+
+// StatableWriter is a writer that can be Stat()-ed.
+type StatableWriter interface {
+	io.Writer
+	Stat() (fs.FileInfo, error)
+}
 
 // Alias some types from the standard encoding library for convenience
 
