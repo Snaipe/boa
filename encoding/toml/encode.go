@@ -8,56 +8,55 @@ package toml
 import (
 	"bytes"
 	"fmt"
-	"go/constant"
 	"io"
-	"math/big"
 	"os"
 	"reflect"
 	"sort"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"snai.pe/boa/encoding"
+	"snai.pe/boa/internal/encutil"
 	"snai.pe/boa/internal/reflectutil"
 	"snai.pe/boa/syntax"
 )
 
-type Encoder struct {
+type encoder struct {
 	marshaler marshaler
 }
 
-func NewEncoder(wr io.Writer) *Encoder {
-	encoder := Encoder{
+func NewEncoder(out io.Writer) encoding.Encoder {
+	encoder := encoder{
 		marshaler: marshaler{
-			wr:       wr,
 			first:    true,
 			curdepth: -1,
 		},
 	}
+	encoder.marshaler.Writer = out
+	encoder.marshaler.Self = &encoder.marshaler
+
+	// Defaults
+	encoder.marshaler.Indent = "  "
+	encoder.marshaler.NamingConvention = encoding.SnakeCase
 	return &encoder
 }
 
-func (encoder *Encoder) Option(opts ...interface{}) encoding.Encoder {
-	for _, opt := range opts {
-		switch setopt := opt.(type) {
-		case encoding.CommonOption:
-			setopt(&encoder.marshaler.CommonOptions)
-		case encoding.EncoderOption:
-			setopt(&encoder.marshaler.EncoderOptions)
-		default:
-			panic(fmt.Sprintf("%T is not a common option, nor an encoder option.", opt))
-		}
+func (encoder *encoder) Encode(v interface{}) error {
+	return encoder.marshaler.Encode(v)
+}
+
+func (encoder *encoder) Option(opts ...interface{}) encoding.Encoder {
+	if err := encoder.marshaler.Option(nil, opts...); err != nil {
+		panic(err)
 	}
 	return encoder
 }
 
 type marshaler struct {
+	encutil.MarshalerBase
 	structTagParser
 
 	// state
-	wr        io.Writer
 	first     bool
 	curdepth  int
 	listdepth int
@@ -67,10 +66,6 @@ type marshaler struct {
 	newline   bool
 	path      []string
 	listofmap []bool
-
-	// options
-	encoding.CommonOptions
-	encoding.EncoderOptions
 }
 
 func (m *marshaler) depth(offset int) int {
@@ -83,63 +78,7 @@ func (m *marshaler) depth(offset int) int {
 	return m.curdepth + offset
 }
 
-func (m *marshaler) quote(in string, delim rune) (int, error) {
-	written := 0
-
-	n, err := io.WriteString(m.wr, string(delim))
-	written += n
-	if err != nil {
-		return written, err
-	}
-
-	for _, r := range in {
-		switch r {
-		case delim, '\n', '\r', '\b', '\t', '\f', '\\':
-			n, err := io.WriteString(m.wr, "\\")
-			written += n
-			if err != nil {
-				return written, err
-			}
-			switch r {
-			case '\n':
-				r = 'n'
-			case '\r':
-				r = 'r'
-			case '\b':
-				r = 'b'
-			case '\t':
-				r = 't'
-			case '\f':
-				r = 'f'
-			}
-		}
-		var n int
-		if unicode.IsPrint(r) {
-			var buf [utf8.UTFMax]byte
-			l := utf8.EncodeRune(buf[:], r)
-
-			n, err = m.wr.Write(buf[:l])
-		} else if r > 0xffff {
-			n, err = fmt.Fprintf(m.wr, "\\U%08x", r)
-		} else {
-			n, err = fmt.Fprintf(m.wr, "\\u%04x", r)
-		}
-		written += n
-		if err != nil {
-			return written, err
-		}
-	}
-
-	n, err = io.WriteString(m.wr, string(delim))
-	written += n
-	if err != nil {
-		return written, err
-	}
-
-	return written, nil
-}
-
-func (m *marshaler) writeKey(s string) (int, error) {
+func (m *marshaler) writeKey(s string) error {
 	isNotIdChar := func(r rune) bool {
 		return !isIdentifierChar(r)
 	}
@@ -147,33 +86,20 @@ func (m *marshaler) writeKey(s string) (int, error) {
 	if strings.IndexFunc(s, isNotIdChar) == -1 && len(s) > 0 {
 		// The key contains legal identifier characters -- we can emit it
 		// as-is without quoting.
-		return io.WriteString(m.wr, s)
+		return m.WriteString(s)
 	}
-
-	return m.quote(s, '"')
+	return m.WriteQuoted(s, '"')
 }
 
 func (m *marshaler) writeKeyPath(s []string) error {
 	for i, e := range s {
-		if _, err := m.writeKey(e); err != nil {
+		if err := m.writeKey(e); err != nil {
 			return err
 		}
 		if i != len(s)-1 {
-			if _, err := io.WriteString(m.wr, "."); err != nil {
+			if err := m.WriteString("."); err != nil {
 				return err
 			}
-		}
-	}
-	return nil
-}
-
-func (m *marshaler) writeIndent(indent string, level int) error {
-	if indent == "" {
-		indent = "  "
-	}
-	for i := 0; i < level; i++ {
-		if _, err := io.WriteString(m.wr, indent); err != nil {
-			return err
 		}
 	}
 	return nil
@@ -235,67 +161,26 @@ func (m *marshaler) MarshalValue(v reflect.Value) (bool, error) {
 		type Formatter interface {
 			Format(layout string) string
 		}
-		_, err := io.WriteString(m.wr, val.(Formatter).Format(time.RFC3339Nano))
-		return true, err
+		return true, m.WriteString(val.(Formatter).Format(time.RFC3339Nano))
 	case LocalDateTime, LocalDate, LocalTime:
-		_, err := io.WriteString(m.wr, val.(fmt.Stringer).String())
-		return true, err
+		return true, m.WriteString(val.(fmt.Stringer).String())
 	}
 	return false, nil
 }
 
-func (m *marshaler) MarshalBool(b bool) (err error) {
-	if b {
-		_, err = io.WriteString(m.wr, "true")
-	} else {
-		_, err = io.WriteString(m.wr, "false")
-	}
-	return err
-}
-
-func (m *marshaler) MarshalString(s string) error {
-	_, err := m.quote(s, '"')
-	return err
-}
-
-func (m *marshaler) MarshalNumber(v constant.Value) (err error) {
-	switch v.Kind() {
-	case constant.Int:
-		_, err = fmt.Fprintf(m.wr, "%d", constant.Val(v))
-	case constant.Float:
-		val := constant.Val(v)
-
-		var out strings.Builder
-		if rat, ok := val.(*big.Rat); ok {
-			val, _ = rat.Float64()
-		}
-		_, err = fmt.Fprintf(&out, "%g", val)
-
-		// Preserve at least a trailing .0 to keep floats as floats.
-		if !strings.ContainsAny(out.String(), ".eE") {
-			out.WriteString(".0")
-		}
-		io.WriteString(m.wr, out.String())
-	default:
-		err = fmt.Errorf("unsupported constant %v", v)
-	}
-	return err
-}
-
 func (m *marshaler) MarshalNaN(v float64) error {
-	_, err := io.WriteString(m.wr, "nan")
-	return err
+	return m.WriteString("nan")
 }
 
 func (m *marshaler) MarshalInf(v float64) error {
 	var err error
 	if v >= 0 {
-		_, err = io.WriteString(m.wr, "+")
+		err = m.WriteString("+")
 	} else {
-		_, err = io.WriteString(m.wr, "-")
+		err = m.WriteString("-")
 	}
 	if err == nil {
-		_, err = io.WriteString(m.wr, "inf")
+		err = m.WriteString("inf")
 	}
 	return err
 }
@@ -306,16 +191,16 @@ func (m *marshaler) MarshalList(v reflect.Value) (bool, error) {
 
 	if ok {
 		m.listdepth++
-		if _, err := io.WriteString(m.wr, "["); err != nil {
+		if err := m.WriteString("["); err != nil {
 			return false, err
 		}
 		if v.Len() > 0 {
 			if m.valdepth == 1 {
-				if _, err := io.WriteString(m.wr, "\n"); err != nil {
+				if err := m.WriteString("\n"); err != nil {
 					return false, err
 				}
 			} else {
-				if _, err := io.WriteString(m.wr, " "); err != nil {
+				if err := m.WriteString(" "); err != nil {
 					return false, err
 				}
 			}
@@ -332,11 +217,11 @@ func (m *marshaler) MarshalListPost(v reflect.Value) error {
 		m.listdepth--
 		if m.valdepth == 1 {
 			// Only indent elements if we're not nested in a submap
-			if err := m.writeIndent(m.Indent, m.depth(0)+m.listdepth); err != nil {
+			if err := m.WriteIndent(m.depth(0) + m.listdepth); err != nil {
 				return err
 			}
 		}
-		_, err := io.WriteString(m.wr, "]")
+		err := m.WriteString("]")
 		return err
 	}
 	return nil
@@ -347,27 +232,27 @@ func (m *marshaler) MarshalListElem(l, v reflect.Value, i int) (bool, error) {
 	if !listofmap {
 		if m.valdepth == 1 {
 			// Only indent elements if we're not nested in a submap
-			if err := m.writeIndent(m.Indent, m.depth(0)+m.listdepth); err != nil {
+			if err := m.WriteIndent(m.depth(0) + m.listdepth); err != nil {
 				return false, err
 			}
 		}
 	} else {
 		if !m.first {
-			if _, err := io.WriteString(m.wr, "\n"); err != nil {
+			if err := m.WriteString("\n"); err != nil {
 				return false, err
 			}
 			m.first = false
 		}
-		if err := m.writeIndent(m.Indent, m.depth(1)); err != nil {
+		if err := m.WriteIndent(m.depth(1)); err != nil {
 			return false, err
 		}
-		if _, err := io.WriteString(m.wr, "[["); err != nil {
+		if err := m.WriteString("[["); err != nil {
 			return false, err
 		}
 		if err := m.writeKeyPath(m.path); err != nil {
 			return false, err
 		}
-		_, err := io.WriteString(m.wr, "]]\n")
+		err := m.WriteString("]]\n")
 		m.curdepth++
 		return false, err
 	}
@@ -380,18 +265,18 @@ func (m *marshaler) MarshalListElemPost(l, v reflect.Value, i int) error {
 		// Always emit a trailing comma when listing one element per line,
 		// otherwise omit when it's the last element of the list.
 		if m.valdepth == 1 || i != l.Len()-1 {
-			if _, err := io.WriteString(m.wr, ","); err != nil {
+			if err := m.WriteString(","); err != nil {
 				return err
 			}
 		}
 		// Only emit a newline if we're not nested in a submap; otherwise,
 		// keep everything on the same line, separated by spaces.
 		if m.valdepth == 1 {
-			if _, err := io.WriteString(m.wr, "\n"); err != nil {
+			if err := m.WriteString("\n"); err != nil {
 				return err
 			}
 		} else {
-			if _, err := io.WriteString(m.wr, " "); err != nil {
+			if err := m.WriteString(" "); err != nil {
 				return err
 			}
 		}
@@ -407,10 +292,10 @@ func (m *marshaler) Stringify(v reflect.Value) (string, bool, error) {
 
 func (m *marshaler) MarshalMap(mv reflect.Value, kvs []reflectutil.MapEntry) (bool, error) {
 	if m.inline {
-		if _, err := io.WriteString(m.wr, "{"); err != nil {
+		if err := m.WriteString("{"); err != nil {
 			return false, err
 		}
-		if _, err := io.WriteString(m.wr, " "); err != nil {
+		if err := m.WriteString(" "); err != nil {
 			return false, err
 		}
 	} else {
@@ -432,7 +317,7 @@ func (m *marshaler) MarshalMap(mv reflect.Value, kvs []reflectutil.MapEntry) (bo
 
 func (m *marshaler) MarshalMapPost(v reflect.Value, kvs []reflectutil.MapEntry) error {
 	if m.inline {
-		if _, err := io.WriteString(m.wr, "}"); err != nil {
+		if err := m.WriteString("}"); err != nil {
 			return err
 		}
 	}
@@ -440,21 +325,7 @@ func (m *marshaler) MarshalMapPost(v reflect.Value, kvs []reflectutil.MapEntry) 
 }
 
 func (m *marshaler) writeComment(comments []string, depth int) error {
-	for _, comment := range comments {
-		if err := m.writeIndent(m.Indent, depth); err != nil {
-			return err
-		}
-		if _, err := io.WriteString(m.wr, "# "); err != nil {
-			return err
-		}
-		if _, err := io.WriteString(m.wr, comment); err != nil {
-			return err
-		}
-		if _, err := io.WriteString(m.wr, "\n"); err != nil {
-			return err
-		}
-	}
-	return nil
+	return m.WriteComment("# ", comments, depth)
 }
 
 func (m *marshaler) MarshalMapKey(mv reflect.Value, kv reflectutil.MapEntry, i int) error {
@@ -466,14 +337,14 @@ func (m *marshaler) MarshalMapKey(mv reflect.Value, kv reflectutil.MapEntry, i i
 			if err := m.writeComment(kv.Options.Help, m.depth(0)); err != nil {
 				return err
 			}
-			if err := m.writeIndent(m.Indent, m.depth(0)); err != nil {
+			if err := m.WriteIndent(m.depth(0)); err != nil {
 				return err
 			}
 		}
-		if _, err := m.writeKey(kv.Key); err != nil {
+		if err := m.writeKey(kv.Key); err != nil {
 			return err
 		}
-		if _, err := io.WriteString(m.wr, " = "); err != nil {
+		if err := m.WriteString(" = "); err != nil {
 			return err
 		}
 		m.first = false
@@ -483,7 +354,7 @@ func (m *marshaler) MarshalMapKey(mv reflect.Value, kv reflectutil.MapEntry, i i
 		}
 		if !reflectutil.IsList(v.Type()) {
 			if !m.first {
-				if _, err := io.WriteString(m.wr, "\n"); err != nil {
+				if err := m.WriteString("\n"); err != nil {
 					return err
 				}
 				m.first = false
@@ -491,16 +362,16 @@ func (m *marshaler) MarshalMapKey(mv reflect.Value, kv reflectutil.MapEntry, i i
 			if err := m.writeComment(kv.Options.Help, m.depth(1)); err != nil {
 				return err
 			}
-			if err := m.writeIndent(m.Indent, m.depth(1)); err != nil {
+			if err := m.WriteIndent(m.depth(1)); err != nil {
 				return err
 			}
-			if _, err := io.WriteString(m.wr, "["); err != nil {
+			if err := m.WriteString("["); err != nil {
 				return err
 			}
 			if err := m.writeKeyPath(m.path); err != nil {
 				return err
 			}
-			if _, err := io.WriteString(m.wr, "]\n"); err != nil {
+			if err := m.WriteString("]\n"); err != nil {
 				return err
 			}
 			m.curdepth++
@@ -530,15 +401,15 @@ func (m *marshaler) MarshalMapValuePost(mv reflect.Value, kv reflectutil.MapEntr
 		m.valdepth--
 		if m.valdepth == 0 {
 			m.inline = false
-			if _, err := io.WriteString(m.wr, "\n"); err != nil {
+			if err := m.WriteString("\n"); err != nil {
 				return err
 			}
 		} else if i != mv.Len()-1 {
-			if _, err := io.WriteString(m.wr, ", "); err != nil {
+			if err := m.WriteString(", "); err != nil {
 				return err
 			}
 		} else {
-			if _, err := io.WriteString(m.wr, " "); err != nil {
+			if err := m.WriteString(" "); err != nil {
 				return err
 			}
 		}
@@ -555,7 +426,7 @@ func (m *marshaler) MarshalMapValuePost(mv reflect.Value, kv reflectutil.MapEntr
 
 func (m *marshaler) MarshalNode(node *syntax.Node) error {
 	for _, tok := range node.Tokens {
-		if _, err := io.WriteString(m.wr, tok.Raw); err != nil {
+		if err := m.WriteString(tok.Raw); err != nil {
 			return err
 		}
 	}
@@ -564,7 +435,7 @@ func (m *marshaler) MarshalNode(node *syntax.Node) error {
 
 func (m *marshaler) MarshalNodePost(node *syntax.Node) error {
 	for _, tok := range node.Suffix {
-		if _, err := io.WriteString(m.wr, tok.Raw); err != nil {
+		if err := m.WriteString(tok.Raw); err != nil {
 			return err
 		}
 	}
@@ -598,19 +469,6 @@ func (structTagParser) ParseStructTag(tag reflect.StructTag) (reflectutil.FieldO
 	return opts, false
 }
 
-func (encoder *Encoder) Encode(v interface{}) error {
-	if node, ok := v.(*syntax.Node); ok {
-		return node.Marshal(&encoder.marshaler)
-	}
-
-	convention := encoder.marshaler.NamingConvention
-	if convention == nil {
-		convention = encoding.SnakeCase
-	}
-
-	return reflectutil.Marshal(reflect.ValueOf(v), &encoder.marshaler, convention)
-}
-
 func Marshal(v interface{}) ([]byte, error) {
 	var out bytes.Buffer
 	if err := NewEncoder(&out).Encode(v); err != nil {
@@ -618,8 +476,6 @@ func Marshal(v interface{}) ([]byte, error) {
 	}
 	return out.Bytes(), nil
 }
-
-type EncoderOption func(*Encoder)
 
 // Save is a convenience function to save the value pointed at by v into a
 // TOML document at path. It is functionally equivalent to NewEncoder(<file at path>).Encode(v).
