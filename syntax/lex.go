@@ -188,8 +188,8 @@ func (l *Lexer) Error(err error) StateFunc {
 	if err == io.EOF {
 		typ = TokenEOF
 	}
-	if _, ok := err.(Error); !ok {
-		err = Error{Cursor: l.TokenPosition, Err: err}
+	if _, ok := err.(*Error); !ok {
+		err = &Error{Cursor: l.TokenPosition, Err: err}
 	}
 	token := Token{
 		Type:  typ,

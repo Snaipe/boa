@@ -16,14 +16,12 @@ import (
 
 type parser struct {
 	lexer   *Lexer
-	name    string
 	current *Node
 }
 
-func newParser(name string, in io.Reader) *parser {
+func newParser(in io.Reader) Parser {
 	p := parser{
 		lexer: newLexer(in),
-		name:  name,
 	}
 	return &p
 }
@@ -42,15 +40,10 @@ func (p *parser) Next(tokens *[]Token) (token Token) {
 
 func (p *parser) Error(token Token, err error) error {
 	if token.Type == TokenError {
-		err = token.Value.(error)
-		if e, ok := err.(Error); ok {
-			e.Filename = p.name
-			err = e
-		}
-		return err
+		return token.Value.(error)
 	}
 	err = TokenTypeError{Token: token, Err: err}
-	err = Error{Filename: p.name, Cursor: token.Start, Err: err}
+	err = &Error{Cursor: token.Start, Err: err}
 	return err
 }
 

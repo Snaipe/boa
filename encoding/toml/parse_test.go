@@ -234,7 +234,7 @@ func TestTOMLStandardSuite(t *testing.T) {
 		t.Run(testname+"/re-encode", func(t *testing.T) {
 			t.Parallel()
 
-			node, err := newParser(path, bytes.NewReader(txt)).Parse()
+			node, err := newParser(bytes.NewReader(txt)).Parse()
 			if err != nil {
 				showContext(nil)
 				t.Fatal(err)
@@ -310,7 +310,7 @@ func BenchmarkStandardSuite(b *testing.B) {
 			}
 
 			for i := 0; i < b.N; i++ {
-				_, err := newParser(path, bytes.NewReader(txt)).Parse()
+				_, err := newParser(bytes.NewReader(txt)).Parse()
 				if err != nil {
 					b.Fatal(err)
 				}

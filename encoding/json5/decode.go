@@ -7,7 +7,6 @@ package json5
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"reflect"
@@ -15,6 +14,7 @@ import (
 	. "snai.pe/boa/syntax"
 
 	"snai.pe/boa/encoding"
+	"snai.pe/boa/internal/encutil"
 	"snai.pe/boa/internal/reflectutil"
 )
 
@@ -47,68 +47,35 @@ var (
 	_ reflectutil.Unmarshaler     = (*unmarshaler)(nil)
 )
 
-type Decoder struct {
-	parser      *parser
+type decoder struct {
+	in          io.Reader
+	base        encutil.DecoderBase
 	unmarshaler unmarshaler
 }
 
-func NewDecoder(rd io.Reader) *Decoder {
-	type namer interface {
-		Name() string
-	}
-	name := ""
-	if namer, ok := rd.(namer); ok {
-		name = namer.Name()
-	}
-	decoder := Decoder{
-		parser: newParser(name, rd),
-	}
+func NewDecoder(rd io.Reader) encoding.Decoder {
+	var decoder decoder
+	decoder.in = rd
+	decoder.base.NewParser = newParser
+	decoder.base.Unmarshaler = &decoder.unmarshaler
 	return &decoder
 }
 
-func (decoder *Decoder) Option(opts ...interface{}) encoding.Decoder {
-	for _, opt := range opts {
-		switch setopt := opt.(type) {
-		case encoding.CommonOption:
-			setopt(&decoder.unmarshaler.CommonOptions)
-		case encoding.DecoderOption:
-			setopt(&decoder.unmarshaler.DecoderOptions)
-		case DecoderOption:
-			setopt(decoder)
-		default:
-			panic(fmt.Sprintf("%T is not a common option, nor an encoder option.", opt))
-		}
+func (decoder *decoder) Option(opts ...interface{}) encoding.Decoder {
+	err := decoder.base.Option(&decoder.unmarshaler.CommonOptions, &decoder.unmarshaler.DecoderOptions, opts...)
+	if err != nil {
+		panic(err)
 	}
 	return decoder
 }
 
-func (decoder *Decoder) Decode(v interface{}) error {
-	root, err := decoder.parser.Parse()
-	if err != nil {
-		return err
-	}
-	if node, ok := v.(**Node); ok {
-		*node = root
-		return nil
-	}
-	ptr := reflect.ValueOf(v)
-	if ptr.Kind() != reflect.Ptr {
-		panic("json5.Decoder.Decode: must pass in pointer value")
-	}
-
+func (decoder *decoder) Decode(v interface{}) error {
 	convention := decoder.unmarshaler.NamingConvention
 	if convention == nil {
 		convention = encoding.CamelCase
 	}
-
-	err = reflectutil.Unmarshal(ptr.Elem(), root.Child, convention, decoder.unmarshaler)
-	if e, ok := err.(*encoding.LoadError); ok {
-		e.Filename = decoder.parser.name
-	}
-	return err
+	return decoder.base.Decode(decoder.in, v, convention)
 }
-
-type DecoderOption func(*Decoder)
 
 // Load is a convenience function to load a JSON5 document into the value
 // pointed at by v. It is functionally equivalent to NewDecoder(<file at path>).Decode(v).

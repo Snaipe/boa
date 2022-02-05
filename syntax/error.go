@@ -27,7 +27,7 @@ type Error struct {
 	Err error
 }
 
-func (e Error) Error() string {
+func (e *Error) Error() string {
 	if e.Filename == "" {
 		return fmt.Sprintf("at %d:%d: %v", e.Line, e.Column, e.Err)
 	} else {
@@ -35,7 +35,7 @@ func (e Error) Error() string {
 	}
 }
 
-func (e Error) Unwrap() error {
+func (e *Error) Unwrap() error {
 	return e.Err
 }
 
