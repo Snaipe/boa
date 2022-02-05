@@ -15,7 +15,7 @@ import (
 	"snai.pe/boa"
 )
 
-func ExampleLoad() {
+func ExampleDecoder() {
 
 	var config struct {
 		Answer   int               `help:"This is an important field that needs to be 42"`
@@ -23,7 +23,13 @@ func ExampleLoad() {
 		Contacts map[string]string `help:"Some people in my contact list"`
 	}
 
-	if err := boa.Load("testdata/example.json5", &config); err != nil {
+	f, err := os.Open("testdata/example.json5")
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer f.Close()
+
+	if err := boa.NewDecoder(f).Decode(&config); err != nil {
 		log.Fatalln(err)
 	}
 
@@ -35,7 +41,7 @@ func ExampleLoad() {
 	// contacts: map[alice:alice@example.com bob:bob@example.com snaipe:me@snai.pe]
 }
 
-func ExampleSave_toml() {
+func ExampleEncoder_toml() {
 
 	type Person struct {
 		Name string
@@ -99,7 +105,13 @@ func ExampleSave_toml() {
 		},
 	}
 
-	if err := boa.Save("testdata/example_save.toml", config); err != nil {
+	f, err := os.Create("testdata/example_save.toml")
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer f.Close()
+
+	if err := boa.NewEncoder(f).Encode(config); err != nil {
 		log.Fatalln(err)
 	}
 
@@ -147,7 +159,7 @@ func ExampleSave_toml() {
 	// some-int = 0
 }
 
-func ExampleSave_json5() {
+func ExampleEncoder_json5() {
 
 	type Person struct {
 		Name  string
@@ -213,7 +225,13 @@ func ExampleSave_json5() {
 		Ignored: "this field is ignored",
 	}
 
-	if err := boa.Save("testdata/example_save.json5", config); err != nil {
+	f, err := os.Create("testdata/example_save.json5")
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer f.Close()
+
+	if err := boa.NewEncoder(f).Encode(config); err != nil {
 		log.Fatalln(err)
 	}
 
@@ -282,7 +300,13 @@ func ExampleSetDefaultOptions() {
 		boa.NamingConvention("kebab-case"),
 	)
 
-	if err := boa.Save("testdata/example_opts.json5", config); err != nil {
+	f, err := os.Create("testdata/example_opts.json5")
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer f.Close()
+
+	if err := boa.NewEncoder(f).Encode(config); err != nil {
 		log.Fatalln(err)
 	}
 

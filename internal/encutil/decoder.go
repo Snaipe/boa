@@ -22,6 +22,12 @@ type UnmarshalerBase struct {
 
 	encoding.CommonOptions
 	encoding.DecoderOptions
+	Extensions []string
+}
+
+type MultiFile interface {
+	Next(...string) error
+	File() fs.File
 }
 
 func (unmarshaler *UnmarshalerBase) Decode(in io.Reader, v interface{}) error {
@@ -30,22 +36,45 @@ func (unmarshaler *UnmarshalerBase) Decode(in io.Reader, v interface{}) error {
 		panic("decode: must pass in pointer value")
 	}
 
-	root, err := unmarshaler.NewParser(in).Parse()
-	if err != nil {
-		if e, ok := err.(*syntax.Error); ok {
+	decode := func(in io.Reader) error {
+		root, err := unmarshaler.NewParser(in).Parse()
+		if err != nil {
+			if e, ok := err.(*syntax.Error); ok {
+				e.Filename = Name(in)
+			}
+			return err
+		}
+		if node, ok := v.(**syntax.Node); ok {
+			*node = root
+			return nil
+		}
+		err = reflectutil.Unmarshal(ptr.Elem(), root.Child, unmarshaler.NamingConvention, unmarshaler.Self)
+		if e, ok := err.(*encoding.LoadError); ok {
 			e.Filename = Name(in)
 		}
 		return err
 	}
-	if node, ok := v.(**syntax.Node); ok {
-		*node = root
+
+	switch f := in.(type) {
+	case MultiFile:
+		for {
+			if err := f.Next(unmarshaler.Extensions...); err != nil {
+				if err == fs.ErrNotExist {
+					break
+				}
+				return err
+			}
+			fin := f.File()
+			err := decode(fin)
+			fin.Close()
+			if err != nil {
+				return err
+			}
+		}
 		return nil
+	default:
+		return decode(f)
 	}
-	err = reflectutil.Unmarshal(ptr.Elem(), root.Child, unmarshaler.NamingConvention, unmarshaler.Self)
-	if e, ok := err.(*encoding.LoadError); ok {
-		e.Filename = Name(in)
-	}
-	return err
 }
 
 func (unmarshaler *UnmarshalerBase) Option(opts ...interface{}) error {

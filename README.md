@@ -134,11 +134,11 @@ func main() {
 		Contacts map[string]string `help:"Some people in my contact list"`
 	}
 
-	if err := boa.Load("/path/to/config.extension", &config); err != nil {
+	if err := boa.Load("appname", &config); err != nil {
 		log.Fatalln(err)
 	}
 
-	if err := boa.Save("/path/to/config.extension", config); err != nil {
+	if err := boa.Save("appname", config); err != nil {
 		log.Fatalln(err)
 	}
 

@@ -5,8 +5,13 @@
 
 package boa
 
-// ConfigHome returns the path to the current user's configuration home, or
-// an error if there is none.
+import (
+	"io/fs"
+	"os"
+)
+
+// ConfigHome returns the filesystem path to the current user's configuration
+// home, or an error if there is none.
 //
 // This function should be used to determine where to save configuration. If
 // it returns an error, no configuration should be saved.
@@ -39,6 +44,23 @@ func ConfigHome() (string, error) {
 //     - Linux & UNIX derivatives:  /etc, /etc/xdg, ~/.config ($XDG_CONFIG_DIRS & $XDG_CONFIG_HOME)
 //     - macOS:                     /Library/Preferences, ~/Library/Preferences
 //     - Windows:                   C:\ProgramData, C:\Users\<user>\AppData\Roaming
-func ConfigPaths() []string {
-	return configPaths()
+func ConfigPaths() []fs.FS {
+	paths := configPaths()
+	fs := make([]fs.FS, 0, len(paths)+1)
+	if defaultPath != nil {
+		fs = append(fs, defaultPath)
+	}
+	for _, path := range paths {
+		fs = append(fs, os.DirFS(path))
+	}
+	return fs
+}
+
+var defaultPath fs.FS
+
+// SetDefaultsPath sets the FS object containing configuration file defaults.
+//
+// It is added as the least important path in the slice returned by ConfigPaths.
+func SetDefaultsPath(defaults fs.FS) {
+	defaultPath = defaults
 }
