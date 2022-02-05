@@ -16,22 +16,21 @@ import (
 	"snai.pe/boa/syntax"
 )
 
-type Unmarshaler interface {
-	reflectutil.Unmarshaler
+type UnmarshalerBase struct {
+	NewParser func(io.Reader) syntax.Parser
+	Self      reflectutil.Unmarshaler
+
+	encoding.CommonOptions
+	encoding.DecoderOptions
 }
 
-type DecoderBase struct {
-	NewParser   func(io.Reader) syntax.Parser
-	Unmarshaler Unmarshaler
-}
-
-func (decoder *DecoderBase) Decode(in io.Reader, v interface{}, convention encoding.NamingConvention) error {
+func (unmarshaler *UnmarshalerBase) Decode(in io.Reader, v interface{}) error {
 	ptr := reflect.ValueOf(v)
 	if ptr.Kind() != reflect.Ptr {
 		panic("decode: must pass in pointer value")
 	}
 
-	root, err := decoder.NewParser(in).Parse()
+	root, err := unmarshaler.NewParser(in).Parse()
 	if err != nil {
 		if e, ok := err.(*syntax.Error); ok {
 			e.Filename = Name(in)
@@ -42,20 +41,20 @@ func (decoder *DecoderBase) Decode(in io.Reader, v interface{}, convention encod
 		*node = root
 		return nil
 	}
-	err = reflectutil.Unmarshal(ptr.Elem(), root.Child, convention, decoder.Unmarshaler)
+	err = reflectutil.Unmarshal(ptr.Elem(), root.Child, unmarshaler.NamingConvention, unmarshaler.Self)
 	if e, ok := err.(*encoding.LoadError); ok {
 		e.Filename = Name(in)
 	}
 	return err
 }
 
-func (decoder *DecoderBase) Option(commonOpts *encoding.CommonOptions, decOpts *encoding.DecoderOptions, opts ...interface{}) error {
+func (unmarshaler *UnmarshalerBase) Option(opts ...interface{}) error {
 	for _, opt := range opts {
 		switch setopt := opt.(type) {
 		case encoding.CommonOption:
-			setopt(commonOpts)
+			setopt(&unmarshaler.CommonOptions)
 		case encoding.DecoderOption:
-			setopt(decOpts)
+			setopt(&unmarshaler.DecoderOptions)
 		default:
 			return fmt.Errorf("%T is not a common option, nor an decoder option.", opt)
 		}

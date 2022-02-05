@@ -19,10 +19,8 @@ import (
 )
 
 type unmarshaler struct {
+	encutil.UnmarshalerBase
 	structTagParser
-
-	encoding.CommonOptions
-	encoding.DecoderOptions
 }
 
 func (unmarshaler) UnmarshalValue(val reflect.Value, node *Node) (bool, error) {
@@ -49,32 +47,30 @@ var (
 
 type decoder struct {
 	in          io.Reader
-	base        encutil.DecoderBase
 	unmarshaler unmarshaler
 }
 
 func NewDecoder(rd io.Reader) encoding.Decoder {
 	var decoder decoder
 	decoder.in = rd
-	decoder.base.NewParser = newParser
-	decoder.base.Unmarshaler = &decoder.unmarshaler
+	decoder.unmarshaler.NewParser = newParser
+	decoder.unmarshaler.Self = &decoder.unmarshaler
+
+	// Defaults
+	decoder.unmarshaler.Indent = "  "
+	decoder.unmarshaler.NamingConvention = encoding.CamelCase
 	return &decoder
 }
 
 func (decoder *decoder) Option(opts ...interface{}) encoding.Decoder {
-	err := decoder.base.Option(&decoder.unmarshaler.CommonOptions, &decoder.unmarshaler.DecoderOptions, opts...)
-	if err != nil {
+	if err := decoder.unmarshaler.Option(opts...); err != nil {
 		panic(err)
 	}
 	return decoder
 }
 
 func (decoder *decoder) Decode(v interface{}) error {
-	convention := decoder.unmarshaler.NamingConvention
-	if convention == nil {
-		convention = encoding.CamelCase
-	}
-	return decoder.base.Decode(decoder.in, v, convention)
+	return decoder.unmarshaler.Decode(decoder.in, v)
 }
 
 // Load is a convenience function to load a JSON5 document into the value
