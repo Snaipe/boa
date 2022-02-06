@@ -114,7 +114,7 @@ Some packages also define or support some specialized types for specific configu
 
 ## Examples
 
-If you're only interested in reading or writing without preserving the original file:
+### Loading configuration
 
 ```golang
 package main
@@ -134,19 +134,63 @@ func main() {
 		Contacts map[string]string `help:"Some people in my contact list"`
 	}
 
+	// Will load any matching "appname.toml" config file from the system config path,
+	// then the user config path. The TOML decoder is inferred from the .toml extension.
+	//
+	// For instance, on Linux, this will load in order:
+	//     - /etc/<appname>.toml
+	//     - /etc/xdg/<appname>.toml
+	//     - ~/.config/<appname>.toml
+	//
 	if err := boa.Load("appname", &config); err != nil {
-		log.Fatalln(err)
-	}
-
-	if err := boa.Save("appname", config); err != nil {
 		log.Fatalln(err)
 	}
 
 }
 ```
 
-In the above example, the configuration gets reformatted by the call to Save; each field
-has a documenting comment whose content is the value of the corresponding `help` struct tag.
+### Loading configuration, with defaults
+
+Configuration defaults are not, by design, set via struct tags or other field-specific mechanisms.
+
+Instead, write a default configuration file in your package, and embed it. Multiple configs
+defaults can be embedded into the same embed.FS declaration -- see the documentation of
+the [embed](https://pkg.go.dev/embed) package.
+
+```golang
+package main
+
+import (
+	"embed"
+	"fmt"
+	"log"
+
+	"snai.pe/boa"
+)
+
+//go:embed appname.toml
+var defaults embed.FS
+
+func main() {
+
+	// Register defaults
+	boa.SetDefaultsPath(defaults)
+
+	var config struct {
+		Answer   int               `help:"This is an important field that needs to be 42"`
+		Primes   []int             `help:"Some prime numbers"`
+		Contacts map[string]string `help:"Some people in my contact list"`
+	}
+
+	if err := boa.Load("appname", &config); err != nil {
+		log.Fatalln(err)
+	}
+
+}
+```
+
+Good configuration defaults should be consistent and self-explanatory. Consider making
+the default for fields their respective type's zero value.
 
 ## Credits
 
