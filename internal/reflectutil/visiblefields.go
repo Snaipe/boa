@@ -44,6 +44,11 @@ func walkFields(fields map[string]StructField, order []StructField, index []int,
 			idx   = append(index, i)
 		)
 
+		// Ignore private fields
+		if field.PkgPath != "" {
+			continue
+		}
+
 		opts := ParseFieldOpts(field.Tag, unmarshaler, convention)
 		if opts.Ignore {
 			continue
