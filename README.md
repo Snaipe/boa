@@ -2,7 +2,10 @@
 
 A friendlier viper.
 
-[![GoDoc](https://godoc.org/snai.pe/boa?status.svg)](https://godoc.org/snai.pe/boa)  
+[![Builds](https://img.shields.io/github/workflow/status/Snaipe/boa/Test)](https://github.com/Snaipe/boa/actions/workflows/test.yml)
+[![GoDoc](https://godoc.org/snai.pe/boa?status.svg)](https://godoc.org/snai.pe/boa)
+[![GitHub](https://img.shields.io/github/license/Snaipe/boa?color=brightgreen)](LICENSE)
+[![Dependencies](https://img.shields.io/badge/dependencies-none!-brightgreen)](go.mod)
 
 ```
 go get snai.pe/boa
