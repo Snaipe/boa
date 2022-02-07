@@ -27,7 +27,7 @@ import (
 //
 // The contents of this map controls how the Decoder type deduces which
 // decoder to use based on the file extension of the input.
-var Decoders = map[string]func(io.Reader) encoding.Decoder {
+var Decoders = map[string]func(io.Reader) encoding.Decoder{
 	".toml":  toml.NewDecoder,
 	".json5": json5.NewDecoder,
 	".json":  json5.NewDecoder,
@@ -41,7 +41,7 @@ var Decoders = map[string]func(io.Reader) encoding.Decoder {
 //
 // The contents of this map controls how the Encoder type deduces which
 // encoder to use based on the file extension of the output.
-var Encoders = map[string]func(io.Writer) encoding.Encoder {
+var Encoders = map[string]func(io.Writer) encoding.Encoder{
 	".toml":  toml.NewEncoder,
 	".json5": json5.NewEncoder,
 	".json":  json5.NewEncoder,

@@ -329,7 +329,7 @@ func ExampleAutomaticEnv() {
 
 	type Config struct {
 		// Explicitly set by PATH variable. Does not need AutomaticEnv.
-		Path  []string `env:"PATH"`
+		Path []string `env:"PATH"`
 
 		// Implicitly defined by BOA_SHELL due to AutomaticEnv("BOA") option.
 		Shell string

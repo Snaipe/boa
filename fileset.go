@@ -131,5 +131,3 @@ func (cfg *FileSet) File() fs.File {
 func (cfg *FileSet) Skip() {
 	cfg.index++
 }
-
-
