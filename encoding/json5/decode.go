@@ -55,6 +55,7 @@ func NewDecoder(rd io.Reader) encoding.Decoder {
 	decoder.in = rd
 	decoder.unmarshaler.NewParser = newParser
 	decoder.unmarshaler.Self = &decoder.unmarshaler
+	decoder.unmarshaler.Extensions = []string{".json5", ".json"}
 
 	// Defaults
 	decoder.unmarshaler.Indent = "  "
