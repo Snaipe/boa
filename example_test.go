@@ -282,7 +282,7 @@ func ExampleEncoder_json5() {
 	// }
 }
 
-func ExampleSetDefaultOptions() {
+func ExampleSetOptions() {
 
 	type Config struct {
 		FirstName string
@@ -296,7 +296,7 @@ func ExampleSetDefaultOptions() {
 		Nickname:  "Snaipe",
 	}
 
-	boa.SetDefaultOptions(
+	boa.SetOptions(
 		boa.Indent("\t"),
 		boa.NamingConvention("kebab-case"),
 	)
@@ -340,7 +340,7 @@ func ExampleAutomaticEnv() {
 		"BOA_SHELL=/bin/sh",
 	}
 
-	boa.SetDefaultOptions(
+	boa.SetOptions(
 		boa.AutomaticEnv("BOA"),
 		boa.Environ(environ),
 	)

@@ -115,11 +115,11 @@ var (
 	defaultDecoderOptions []interface{}
 )
 
-// SetDefaultOptions sets the default set of common, encoder-specific, and decoder-specific
+// SetOptions sets the default set of common, encoder-specific, and decoder-specific
 // options for the functions in the boa package.
 //
 // Note that it does not change the defaults of specific encoding packages.
-func SetDefaultOptions(options ...interface{}) {
+func SetOptions(options ...interface{}) {
 	for _, opt := range options {
 		switch opt.(type) {
 		case CommonOption:
