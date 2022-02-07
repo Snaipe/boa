@@ -8,7 +8,6 @@ package boa
 import (
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,125 +16,6 @@ import (
 	"snai.pe/boa/encoding/json5"
 	"snai.pe/boa/encoding/toml"
 )
-
-// ConfigFile represents the combined set of configuration files with a specific
-// name, that are contained within any of the directories in a search path.
-type ConfigFile struct {
-	fs     []fs.FS
-	name   string
-	index  int
-	opened fs.File
-	closed bool
-}
-
-// Open opens a set of configuration files by name.
-//
-// The files are searched by matching the stem (i.e. the filename without
-// extension) of the files in the provided search paths to the specified name.
-// If no path is provided, the result of ConfigPaths() is used.
-//
-// The provided name can be a filename with an extension, or without an extension.
-// It can also include one or more directory components, but must not be an
-// absolute filesystem path; use os.Open instead to load configuration from
-// specific filesystem paths.
-//
-// Names with an extension will restrict the search to the files matching the
-// specified extension. Conversely, names without an extension will match all
-// files whose stem is the last path component of the filename.
-func Open(name string, paths ...fs.FS) *ConfigFile {
-	if filepath.IsAbs(name) {
-		panic("Open does not take absolute paths; use os.Open instead.")
-	}
-	if strings.HasPrefix(name, "."+string(filepath.Separator)) || strings.HasPrefix(name, ".."+string(filepath.Separator)) {
-		panic("Open does not take cwd-relative paths; use os.Open instead.")
-	}
-	if paths == nil {
-		paths = ConfigPaths()
-	}
-	return &ConfigFile{fs: paths, name: name}
-}
-
-// Read reads the contents of the currently opened configuration file into
-// the data slice.
-func (cfg *ConfigFile) Read(data []byte) (int, error) {
-	if cfg.opened == nil {
-		panic("ConfigFile.Next must be called first")
-	}
-	return cfg.opened.Read(data)
-}
-
-// Stat returns file information of the currently opened configuration file.
-func (cfg *ConfigFile) Stat() (fs.FileInfo, error) {
-	if cfg.opened == nil {
-		panic("ConfigFile.Next must be called first")
-	}
-	return cfg.opened.Stat()
-}
-
-// Close closes the currently opened file.
-func (cfg *ConfigFile) Close() error {
-	if cfg.opened == nil {
-		return nil
-	}
-	return cfg.opened.Close()
-}
-
-// Next closes the current configuration file if any is opened, and opens
-// the first file in the next path that matches the set of allowed file extensions.
-//
-// All subsequent calls to Read, Stat, and Close will then apply on the newly
-// opened configuration file.
-//
-// If all of the search paths have been exhausted, os.ErrNotExist is returned.
-//
-// The files are matched in the order of the specified exts slice rather than
-// directory (or lexical) order. For insteance, if the extension slice
-// is ".json5", ".json" on a path containing <name>.json5 and <name>.json will
-// open <name>.json5 if it exists, or then <name>.json.
-func (cfg *ConfigFile) Next(exts ...string) error {
-	if cfg.opened != nil {
-		// Close errors are ignored. ConfigFile only reads files, so close errors
-		// do not matter.
-		_ = cfg.opened.Close()
-	}
-
-	for ; cfg.index < len(cfg.fs); cfg.index++ {
-		for _, ext := range exts {
-			realext := filepath.Ext(cfg.name)
-			if realext != "" && realext != ext {
-				continue
-			}
-			stem := cfg.name[:len(cfg.name)-len(realext)]
-			f, err := cfg.fs[cfg.index].Open(stem + ext)
-			switch {
-			case errors.Is(err, fs.ErrNotExist):
-				continue
-			case err != nil:
-				return err
-			}
-			cfg.opened = f
-			cfg.index++
-			return nil
-		}
-	}
-	return os.ErrNotExist
-}
-
-// File returns the currently opened file.
-func (cfg *ConfigFile) File() fs.File {
-	if cfg.opened == nil {
-		panic("ConfigFile.Next must be called first")
-	}
-	return cfg.opened
-}
-
-// Skip skips the current search path. This function is particularly useful when
-// all of the matching configurations cannot be opened for any reason, and the
-// application would rather warn but continue parsing configurations in the
-// rest of the paths.
-func (cfg *ConfigFile) Skip() {
-	cfg.index++
-}
 
 // A Decoder reads and decodes a configuration from an input file.
 type Decoder struct {
@@ -199,7 +79,7 @@ func (dec *Decoder) Decode(v interface{}) error {
 	}
 
 	switch in := dec.in.(type) {
-	case *ConfigFile:
+	case *FileSet:
 		for {
 			if err := in.Next(".toml", ".json5", ".json"); err != nil {
 				if err == os.ErrNotExist {
