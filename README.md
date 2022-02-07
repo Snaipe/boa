@@ -222,8 +222,8 @@ type Config struct {
 	ImplicitVariable string
 }
 
-boa.SetDefaultOptions(
-	boa.AutomaticEnv("PREFIX")
+boa.SetOptions(
+	boa.AutomaticEnv("PREFIX"),
 )
 ```
 
