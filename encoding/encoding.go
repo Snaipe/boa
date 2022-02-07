@@ -76,7 +76,10 @@ type EncoderOption func(*EncoderOptions)
 // via one of the options in the boa package, or decoder-specific options
 // in the package of the relevant decoder.
 type DecoderOptions struct {
-	Indent string
+	Indent       string
+	AutomaticEnv bool
+	EnvPrefix    string
+	LookupEnv    func(string) (string, bool)
 }
 
 // DecoderOption represents an option common to all decoders in boa.

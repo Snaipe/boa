@@ -58,7 +58,7 @@ func walkFields(fields map[string]StructField, order []StructField, index []int,
 			order = walkFields(fields, order, idx, elem, field.Type, opts.Naming, unmarshaler)
 			continue
 		}
-		if opts.Name == "" {
+		if opts.Name == "" && opts.Naming != nil {
 			opts.Name = opts.Naming.Format(field.Name)
 		}
 

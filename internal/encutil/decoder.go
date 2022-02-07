@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	"reflect"
 
 	"snai.pe/boa/encoding"
@@ -55,6 +56,10 @@ func (unmarshaler *UnmarshalerBase) Decode(in io.Reader, v interface{}) error {
 		return err
 	}
 
+	if unmarshaler.LookupEnv == nil {
+		unmarshaler.LookupEnv = os.LookupEnv
+	}
+
 	switch f := in.(type) {
 	case MultiFile:
 		for {
@@ -71,9 +76,14 @@ func (unmarshaler *UnmarshalerBase) Decode(in io.Reader, v interface{}) error {
 				return err
 			}
 		}
-		return nil
+		_, err := reflectutil.PopulateFromEnv(ptr.Elem(), unmarshaler.AutomaticEnv, unmarshaler.EnvPrefix, unmarshaler.LookupEnv)
+		return err
 	default:
-		return decode(f)
+		if err := decode(f); err != nil {
+			return err
+		}
+		_, err := reflectutil.PopulateFromEnv(ptr.Elem(), unmarshaler.AutomaticEnv, unmarshaler.EnvPrefix, unmarshaler.LookupEnv)
+		return err
 	}
 }
 

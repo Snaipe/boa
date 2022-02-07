@@ -7,6 +7,7 @@ package boa
 
 import (
 	"fmt"
+	"strings"
 
 	"snai.pe/boa/encoding"
 )
@@ -61,6 +62,51 @@ func NamingConvention(name interface{}) CommonOption {
 
 	return func(opts *encoding.CommonOptions) {
 		opts.NamingConvention = convention
+	}
+}
+
+// AutomaticEnv enables the automatic population of config values from the
+// environment. An optional prefix may be specified for the environment
+// variable names.
+func AutomaticEnv(prefix string) DecoderOption {
+	return func(opts *encoding.DecoderOptions) {
+		opts.AutomaticEnv = true
+		opts.EnvPrefix = prefix
+	}
+}
+
+// Environ sets the environment variables that will be used for any
+// substitution, either by fields marked with an `env` tag, or fields
+// implicitly matching variables via AutomaticEnv.
+//
+// Incompatible with EnvironFunc. Setting Environ after EnvironFunc
+// overrides the lookup function that EnvironFunc previously set.
+func Environ(env []string) DecoderOption {
+	environ := make(map[string]string, len(env))
+	for _, e := range env {
+		split := strings.SplitN(e, "=", 2)
+		if len(split) != 2 {
+			panic("env has `" + e + "`, which is not in key=value form.")
+		}
+		environ[split[0]] = split[1]
+	}
+
+	lookupEnv := func(k string) (string, bool) {
+		v, ok := environ[k]
+		return v, ok
+	}
+
+	return EnvironFunc(lookupEnv)
+}
+
+// EnvironFunc sets the lookup function for environment variables. By default,
+// os.LookupEnv is used.
+//
+// Incompatible with EnvironFunc. Setting EnvironFunc after Environ
+// overrides the variables that Environ previously set.
+func EnvironFunc(fn func(string) (string, bool)) DecoderOption {
+	return func(opts *encoding.DecoderOptions) {
+		opts.LookupEnv = fn
 	}
 }
 

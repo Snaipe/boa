@@ -84,6 +84,7 @@ to be inserted, enter insert mode, press Ctrl-V, then u2060.
 | `name:"⁠<name>"`   | Set key name.
 | `help:"⁠<help>"`   | Set documentation; appears as comment in the config.
 | `naming:"⁠<name>"` | Set naming convention for key and subkeys.
+| `env:"⁠<var>"`     | Populate field with specified environment variable.
 | `inline`          | Inline field. All sub-fields will be treated as if they were in the containing struct itself. Does the same as embedding the field.
 | `-`               | Ignore field.
 
@@ -191,6 +192,39 @@ func main() {
 
 Good configuration defaults should be consistent and self-explanatory. Consider making
 the default for fields their respective type's zero value.
+
+### Environment variables
+
+Configuration fields can be explicitly bound to environment variables via the `env` struct tag:
+
+```golang
+type Config struct {
+	Shell string   `env:"SHELL"`
+	Path  []string `env:"PATH"`
+}
+```
+
+Environment values are generally parsed according to the strconv Parse functions, or using
+UnmarshalText if the field's type implements encoding.TextUnmarshaler.
+
+Slices and arrays are parsed as a path-list-separated list of strings. The delimiter
+is os.PathListSeparator: with the above example, on Unix derivatives, `PATH=a:b:c` would
+get unmarshaled as [a, b, c], while on Windows the value would need to be `PATH=a;b;c`.
+
+Fields with no `env` tag are not populated from the environment, unless the AutomaticEnv
+option is provided:
+
+```golang
+type Config struct {
+	ImplicitVariable string
+}
+
+boa.SetDefaultOptions(
+	boa.AutomaticEnv("PREFIX")
+)
+```
+
+In this example, `PREFIX_IMPLICIT_VARIABLE=value` would set `Config.ImplicitVariable`.
 
 ## Credits
 

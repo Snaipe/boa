@@ -26,6 +26,7 @@ type FieldOpts struct {
 	Ignore bool
 	Naming NamingConvention
 	Inline bool
+	Env    string
 }
 
 type MapEntry struct {
@@ -215,9 +216,10 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 			case encoding.TextMarshaler:
 				var txt []byte
 				txt, err := kval.MarshalText()
-				if err == nil {
-					kvs[i] = MapEntry{Key: string(txt), Value: v}
+				if err != nil {
+					return err
 				}
+				kvs[i] = MapEntry{Key: string(txt), Value: v}
 			case string:
 				kvs[i] = MapEntry{Key: kval, Value: v}
 			default:
@@ -368,6 +370,9 @@ func ParseFieldOpts(tag reflect.StructTag, marshaler interface{}, convention Nam
 	_, opts.Inline = LookupTag(tag, "inline", false)
 	if opts.Naming == nil {
 		opts.Naming = convention
+	}
+	if env, ok := LookupTag(tag, "env", false); ok {
+		opts.Env = env.Value
 	}
 	return
 }

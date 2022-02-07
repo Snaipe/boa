@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"snai.pe/boa"
@@ -322,4 +323,44 @@ func ExampleSetDefaultOptions() {
 	// 	"last-name": "Mathieu",
 	// 	nickname: "Snaipe",
 	// }
+}
+
+func ExampleAutomaticEnv() {
+
+	type Config struct {
+		// Explicitly set by PATH variable. Does not need AutomaticEnv.
+		Path  []string `env:"PATH"`
+
+		// Implicitly defined by BOA_SHELL due to AutomaticEnv("BOA") option.
+		Shell string
+	}
+
+	environ := []string{
+		"PATH=" + strings.Join([]string{"/bin", "/usr/bin", "/sbin", "/usr/sbin"}, string(os.PathListSeparator)),
+		"BOA_SHELL=/bin/sh",
+	}
+
+	boa.SetDefaultOptions(
+		boa.AutomaticEnv("BOA"),
+		boa.Environ(environ),
+	)
+
+	var config Config
+
+	f, err := os.Open("testdata/example.json5")
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer f.Close()
+
+	if err := boa.NewDecoder(f).Decode(&config); err != nil {
+		log.Fatalln(err)
+	}
+
+	fmt.Println("Path:", config.Path)
+	fmt.Println("Shell:", config.Shell)
+
+	// Output:
+	// Path: [/bin /usr/bin /sbin /usr/sbin]
+	// Shell: /bin/sh
 }
