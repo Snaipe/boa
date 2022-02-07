@@ -26,7 +26,7 @@ var config struct {
 func Example() {
 
 	// Register the default files
-	boa.SetDefaultsPath(defaults)
+	boa.SetDefaults(defaults)
 
 	// Opens and loads, in order, the example_defaults.toml files from the
 	// following paths:

@@ -178,7 +178,7 @@ var defaults embed.FS
 func main() {
 
 	// Register defaults
-	boa.SetDefaultsPath(defaults)
+	boa.SetDefaults(defaults)
 
 	var config struct {
 		Answer   int               `help:"This is an important field that needs to be 42"`

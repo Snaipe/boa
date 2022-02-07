@@ -58,9 +58,9 @@ func ConfigPaths() []fs.FS {
 
 var defaultPath fs.FS
 
-// SetDefaultsPath sets the FS object containing configuration file defaults.
+// SetDefaults sets the FS object containing configuration file defaults.
 //
 // It is added as the least important path in the slice returned by ConfigPaths.
-func SetDefaultsPath(defaults fs.FS) {
+func SetDefaults(defaults fs.FS) {
 	defaultPath = defaults
 }
