@@ -1,4 +1,4 @@
-<h1 align="center"><img src="assets/title.svg" height="200" alt="Boa Logo" /></h1>
+<div align="center"><h1><img src="assets/title.svg" height="200" alt="Boa Logo" /></h1></div>
 
 A friendlier viper.
 
