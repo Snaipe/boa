@@ -64,6 +64,15 @@ func (m *MarshalerBase) WriteString(s string) error {
 	return err
 }
 
+func (m *MarshalerBase) WriteNewline() error {
+	nl := m.LineBreak
+	if nl == "" {
+		nl = "\n"
+	}
+	_, err := io.WriteString(m.Writer, nl)
+	return err
+}
+
 func (m *MarshalerBase) WriteIndent(level int) error {
 	for i := 0; i < level; i++ {
 		if _, err := io.WriteString(m.Writer, m.Indent); err != nil {

@@ -205,7 +205,7 @@ func (m *marshaler) MarshalList(v reflect.Value) (bool, error) {
 		return false, err
 	}
 	if v.Len() > 0 {
-		return false, m.WriteString("\n")
+		return false, m.WriteNewline()
 	}
 	return false, nil
 }
@@ -230,7 +230,7 @@ func (m *marshaler) MarshalListElemPost(l, v reflect.Value, i int) error {
 			return err
 		}
 	}
-	return m.WriteString("\n")
+	return m.WriteNewline()
 }
 
 func (m *marshaler) Stringify(v reflect.Value) (string, bool, error) {
@@ -259,7 +259,7 @@ func (m *marshaler) MarshalMap(v reflect.Value, kvs []reflectutil.MapEntry) (boo
 		return false, err
 	}
 	if reflectutil.Len(v) > 0 {
-		return false, m.WriteString("\n")
+		return false, m.WriteNewline()
 	}
 	return false, nil
 }
@@ -275,7 +275,7 @@ func (m *marshaler) MarshalMapPost(v reflect.Value, kvs []reflectutil.MapEntry) 
 		return err
 	}
 	if m.depth == 0 {
-		return m.WriteString("\n")
+		return m.WriteNewline()
 	}
 	return nil
 }

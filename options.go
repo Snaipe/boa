@@ -29,6 +29,19 @@ func Indent(indent string) EncoderOption {
 	}
 }
 
+// LineBreak sets the line break sequence that must be used when encoding
+// documents.
+//
+// Can either be "\n" or "\r\n".
+func LineBreak(lb string) EncoderOption {
+	if lb != "\n" && lb != "\r\n" {
+		panic("line break must either be \\n or \\r\\n.")
+	}
+	return func(opts *encoding.EncoderOptions) {
+		opts.LineBreak = lb
+	}
+}
+
 // NamingConvention returns an option that sets the default naming convention
 // of an encoder or decoder to the specified convention.
 //

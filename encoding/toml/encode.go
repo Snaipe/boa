@@ -196,7 +196,7 @@ func (m *marshaler) MarshalList(v reflect.Value) (bool, error) {
 		}
 		if v.Len() > 0 {
 			if m.valdepth == 1 {
-				if err := m.WriteString("\n"); err != nil {
+				if err := m.WriteNewline(); err != nil {
 					return false, err
 				}
 			} else {
@@ -238,7 +238,7 @@ func (m *marshaler) MarshalListElem(l, v reflect.Value, i int) (bool, error) {
 		}
 	} else {
 		if !m.first {
-			if err := m.WriteString("\n"); err != nil {
+			if err := m.WriteNewline(); err != nil {
 				return false, err
 			}
 			m.first = false
@@ -272,7 +272,7 @@ func (m *marshaler) MarshalListElemPost(l, v reflect.Value, i int) error {
 		// Only emit a newline if we're not nested in a submap; otherwise,
 		// keep everything on the same line, separated by spaces.
 		if m.valdepth == 1 {
-			if err := m.WriteString("\n"); err != nil {
+			if err := m.WriteNewline(); err != nil {
 				return err
 			}
 		} else {
@@ -354,7 +354,7 @@ func (m *marshaler) MarshalMapKey(mv reflect.Value, kv reflectutil.MapEntry, i i
 		}
 		if !reflectutil.IsList(v.Type()) {
 			if !m.first {
-				if err := m.WriteString("\n"); err != nil {
+				if err := m.WriteNewline(); err != nil {
 					return err
 				}
 				m.first = false
@@ -401,7 +401,7 @@ func (m *marshaler) MarshalMapValuePost(mv reflect.Value, kv reflectutil.MapEntr
 		m.valdepth--
 		if m.valdepth == 0 {
 			m.inline = false
-			if err := m.WriteString("\n"); err != nil {
+			if err := m.WriteNewline(); err != nil {
 				return err
 			}
 		} else if i != mv.Len()-1 {

@@ -63,7 +63,8 @@ type CommonOption func(*CommonOptions)
 // via one of the options in the boa package, or encoder-specific options
 // in the package of the relevant encoder.
 type EncoderOptions struct {
-	Indent string
+	Indent    string
+	LineBreak string
 }
 
 // EncoderOption represents an option common to all encoders in boa.
