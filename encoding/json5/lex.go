@@ -140,7 +140,7 @@ func (state *lexerState) lex(l *Lexer) StateFunc {
 			comment, err := l.AcceptUntil(func(r rune) bool {
 				return r != '\n' && r != '\r' && r != lineSep && r != parSep
 			})
-			if err != nil && err != io.EOF {
+			if err != nil {
 				return l.Error(err)
 			}
 			typ := TokenComment
@@ -384,7 +384,7 @@ func (state *lexerState) lexHex(l *Lexer) StateFunc {
 	num, err := l.AcceptUntil(func(r rune) bool {
 		return unicode.In(r, unicode.L, unicode.N)
 	})
-	if err != nil && err != io.EOF {
+	if err != nil {
 		return l.Error(err)
 	}
 	val, ok := new(big.Int).SetString(num, 16)
@@ -399,7 +399,7 @@ func (state *lexerState) lexNumber(l *Lexer) StateFunc {
 	num, err := l.AcceptUntil(func(r rune) bool {
 		return strings.IndexRune("0123456789eE+-.", r) != -1
 	})
-	if err != nil && err != io.EOF {
+	if err != nil {
 		return l.Error(err)
 	}
 	err = nil

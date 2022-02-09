@@ -83,7 +83,7 @@ func (state *lexerState) lex(l *Lexer) StateFunc {
 	switch r {
 	case ' ', '\t':
 		_, err := l.AcceptUntil(isSpace)
-		if err != nil && err != io.EOF {
+		if err != nil {
 			return l.Error(err)
 		}
 		l.Emit(TokenWhitespace, nil)
@@ -142,13 +142,14 @@ func (state *lexerState) lex(l *Lexer) StateFunc {
 		comment, err := l.AcceptUntil(func(r rune) bool {
 			return !isBadControlChar(r) && r != '\n'
 		})
+		if err != nil {
+			return l.Error(err)
+		}
+		err = state.acceptNewline(l)
+		if err != nil && err != io.EOF {
+			return l.Error(err)
+		}
 		if err != io.EOF {
-			if err != nil {
-				return l.Error(err)
-			}
-			if err := state.acceptNewline(l); err != nil {
-				return l.Error(err)
-			}
 			l.UnreadRune()
 		}
 		l.Emit(TokenComment, strings.TrimSpace(comment))
@@ -326,9 +327,6 @@ func (state *lexerState) lexString(l *Lexer, delim rune) StateFunc {
 					l.AcceptUntil(isSpace)
 					r, _, err = l.ReadRune()
 					if err != nil {
-						if err == io.EOF {
-							err = io.ErrUnexpectedEOF
-						}
 						return l.Error(err)
 					}
 					if r != '\r' && r != '\n' {
@@ -346,9 +344,6 @@ func (state *lexerState) lexString(l *Lexer, delim rune) StateFunc {
 						return isSpace(r) || isNewline(r)
 					})
 					if err != nil {
-						if err == io.EOF {
-							err = io.ErrUnexpectedEOF
-						}
 						return l.Error(err)
 					}
 				case 'b':

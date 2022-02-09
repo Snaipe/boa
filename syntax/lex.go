@@ -313,14 +313,16 @@ func (l *Lexer) AcceptUntil(fn func(rune) bool) (string, error) {
 	var out strings.Builder
 	for {
 		r, _, err := l.ReadRune()
+		if err == io.EOF {
+			return out.String(), nil
+		}
 		if err != nil {
 			return "", err
 		}
 		if !fn(r) {
-			break
+			l.UnreadRune()
+			return out.String(), nil
 		}
 		out.WriteRune(r)
 	}
-	l.UnreadRune()
-	return out.String(), nil
 }
