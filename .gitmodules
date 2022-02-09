@@ -4,3 +4,6 @@
 [submodule "encoding/toml/testdata"]
 	path = encoding/toml/testdata/standard
 	url = https://github.com/BurntSushi/toml-test
+[submodule "encoding/yaml/testdata"]
+	path = encoding/yaml/testdata/standard
+	url = https://github.com/yaml/yaml-test-suite
