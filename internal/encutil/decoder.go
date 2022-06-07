@@ -37,9 +37,6 @@ func (unmarshaler *UnmarshalerBase) Decode(in io.Reader, v interface{}) error {
 		panic("decode: must pass in pointer value")
 	}
 
-	// First decode overrides, subsequent ones merge
-	merge := false
-
 	decode := func(in io.Reader) error {
 		root, err := unmarshaler.NewParser(in).Parse()
 		if err != nil {
@@ -52,12 +49,11 @@ func (unmarshaler *UnmarshalerBase) Decode(in io.Reader, v interface{}) error {
 			*node = root
 			return nil
 		}
-		err = reflectutil.Unmarshal(ptr.Elem(), root.Child, unmarshaler.NamingConvention, merge, unmarshaler.Self)
+		err = reflectutil.Unmarshal(ptr.Elem(), root.Child, unmarshaler.NamingConvention, true, unmarshaler.Self)
 		if e, ok := err.(*encoding.LoadError); ok {
 			e.Filename = Name(in)
 		}
 
-		merge = true
 		return err
 	}
 

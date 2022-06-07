@@ -299,9 +299,9 @@ func (m *marshaler) MarshalMapValue(mv reflect.Value, kv reflectutil.MapEntry, i
 
 func (m *marshaler) MarshalMapValuePost(mv reflect.Value, kv reflectutil.MapEntry, i int) error {
 	if i != reflectutil.Len(mv)-1 || !m.json {
-		return m.WriteString(",\n")
+		m.WriteString(",")
 	}
-	return nil
+	return m.WriteNewline()
 }
 
 func (m *marshaler) MarshalNode(node *syntax.Node) error {
