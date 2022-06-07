@@ -90,27 +90,41 @@ func UnmarshalText(to reflect.Value, value string) (bool, error) {
 	return false, nil
 }
 
-func PopulateFromEnv(to reflect.Value, automatic bool, name string, lookup func(string) (string, bool)) (bool, error) {
+func PopulateFromEnv(to reflect.Value, automatic bool, names []string, lookup func(string) (string, bool)) (bool, error) {
 
-	if (to.Kind() == reflect.Ptr || to.Kind() == reflect.Interface) && !to.IsNil() {
-		return PopulateFromEnv(to.Elem(), automatic, name, lookup)
+	if len(names) == 0 {
+		return true, nil
 	}
 
 	if to.Kind() == reflect.Ptr {
+		if !to.IsNil() {
+			return PopulateFromEnv(to.Elem(), automatic, names, lookup)
+		}
+
 		ptr := reflect.New(to.Type().Elem())
-		ok, err := PopulateFromEnv(ptr.Elem(), automatic, name, lookup)
+		ok, err := PopulateFromEnv(ptr.Elem(), automatic, names, lookup)
 		if ok && err == nil {
 			to.Set(ptr)
 		}
 		return ok, err
 	}
 
-	value, defined := lookup(name)
+	var (
+		value   string
+		defined bool
+	)
+	for i := 0; i < len(names) && !defined; i++ {
+		value, defined = lookup(names[i])
+	}
 
 	if automatic && defined {
 		if ok, err := UnmarshalText(to, value); ok {
 			return true, err
 		}
+	}
+
+	for to.Kind() == reflect.Interface {
+		to = to.Elem()
 	}
 
 	switch kind := to.Kind(); kind {
@@ -164,20 +178,25 @@ func PopulateFromEnv(to reflect.Value, automatic bool, name string, lookup func(
 				return unicode.ToUpper(r)
 			}
 
-			tentatives := []string{
-				encoding.ScreamingSnakeCase.Format(key),
-				strings.Map(toEnv, key),
-				key,
+			formatted := encoding.ScreamingSnakeCase.Format(key)
+			asEnv := strings.Map(toEnv, key)
+
+			uniq := map[string]struct{}{}
+			for _, name := range names {
+				uniq[name + "_" + formatted] = struct{}{}
+				uniq[name + "_" + asEnv] = struct{}{}
 			}
-			for _, tentative := range tentatives {
-				ok, err := PopulateFromEnv(elem, automatic, tentative, lookup)
-				if err != nil {
-					return ok, err
-				}
-				if ok {
-					to.SetMapIndex(k, elem)
-					break
-				}
+			tentatives := make([]string, 0, len(uniq))
+			for name := range uniq {
+				tentatives = append(tentatives, name)
+			}
+			ok, err := PopulateFromEnv(elem, automatic, tentatives, lookup)
+			if err != nil {
+				return ok, err
+			}
+			if ok {
+				to.SetMapIndex(k, elem)
+				break
 			}
 		}
 
@@ -190,13 +209,18 @@ func PopulateFromEnv(to reflect.Value, automatic bool, name string, lookup func(
 				err error
 			)
 			if field.Options.Env != "" {
-				ok, err = PopulateFromEnv(field.Value, true, field.Options.Env, lookup)
+				ok, err = PopulateFromEnv(field.Value, true, []string{field.Options.Env}, lookup)
 			} else {
 				key := encoding.ScreamingSnakeCase.Format(field.Name)
-				if name != "" {
-					key = name + "_" + key
+				uniq := map[string]struct{}{}
+				for _, name := range names {
+					uniq[name + "_" + key] = struct{}{}
 				}
-				ok, err = PopulateFromEnv(field.Value, automatic, key, lookup)
+				tentatives := make([]string, 0, len(uniq))
+				for name := range uniq {
+					tentatives = append(tentatives, name)
+				}
+				ok, err = PopulateFromEnv(field.Value, automatic, tentatives, lookup)
 			}
 			changed = changed || ok
 			if err != nil {

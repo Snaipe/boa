@@ -333,11 +333,25 @@ func ExampleAutomaticEnv() {
 
 		// Implicitly defined by BOA_SHELL due to AutomaticEnv("BOA") option.
 		Shell string
+
+		// Maps do not get implicitly populated from the environment -- however
+		// existing values can still be overriden by environment variables if
+		// the AutomaticEnv option is used.
+		//
+		// For instance, setting BOA_CONTACTS_NOT_MENTIONED will not create
+		// an entry named "NOT_MENTIONED" in the Contacts field (nor will it
+		// create a map named "NOT" under it with a "MENTIONED" entry, or
+		// try to divine the user's intentions on the naming convention to
+		// use with any of these). However, setting BOA_CONTACTS_ALICE to
+		// alice@acme.org will successfully replace the existing contact in
+		// the example config for alice to alice@acme.org.
+		Contacts map[string]string
 	}
 
 	environ := []string{
 		"PATH=" + strings.Join([]string{"/bin", "/usr/bin", "/sbin", "/usr/sbin"}, string(os.PathListSeparator)),
 		"BOA_SHELL=/bin/sh",
+		"BOA_CONTACTS_ALICE=alice@acme.org",
 	}
 
 	boa.SetOptions(
@@ -359,8 +373,10 @@ func ExampleAutomaticEnv() {
 
 	fmt.Println("Path:", config.Path)
 	fmt.Println("Shell:", config.Shell)
+	fmt.Println("Contacts:", config.Contacts)
 
 	// Output:
 	// Path: [/bin /usr/bin /sbin /usr/sbin]
 	// Shell: /bin/sh
+	// Contacts: map[alice:alice@acme.org bob:bob@example.com snaipe:me@snai.pe]
 }

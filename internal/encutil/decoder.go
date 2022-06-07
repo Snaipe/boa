@@ -60,6 +60,11 @@ func (unmarshaler *UnmarshalerBase) Decode(in io.Reader, v interface{}) error {
 		unmarshaler.LookupEnv = os.LookupEnv
 	}
 
+	var names []string
+	if unmarshaler.EnvPrefix != "" {
+		names = []string{unmarshaler.EnvPrefix}
+	}
+
 	switch f := in.(type) {
 	case MultiFile:
 		for {
@@ -76,13 +81,13 @@ func (unmarshaler *UnmarshalerBase) Decode(in io.Reader, v interface{}) error {
 				return err
 			}
 		}
-		_, err := reflectutil.PopulateFromEnv(ptr.Elem(), unmarshaler.AutomaticEnv, unmarshaler.EnvPrefix, unmarshaler.LookupEnv)
+		_, err := reflectutil.PopulateFromEnv(ptr.Elem(), unmarshaler.AutomaticEnv, names, unmarshaler.LookupEnv)
 		return err
 	default:
 		if err := decode(f); err != nil {
 			return err
 		}
-		_, err := reflectutil.PopulateFromEnv(ptr.Elem(), unmarshaler.AutomaticEnv, unmarshaler.EnvPrefix, unmarshaler.LookupEnv)
+		_, err := reflectutil.PopulateFromEnv(ptr.Elem(), unmarshaler.AutomaticEnv, names, unmarshaler.LookupEnv)
 		return err
 	}
 }
