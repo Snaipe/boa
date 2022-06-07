@@ -227,7 +227,7 @@ func TestUnmarshal(t *testing.T) {
 
 	t.Run("nested", func(t *testing.T) {
 		var actual T
-		err := Unmarshal(reflect.ValueOf(&actual).Elem(), testNode, encoding.CamelCase, nil)
+		err := Unmarshal(reflect.ValueOf(&actual).Elem(), testNode, encoding.CamelCase, false, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -246,7 +246,7 @@ func TestUnmarshal(t *testing.T) {
 			exp = T2{Nested: expected}
 		)
 
-		err := Unmarshal(reflect.ValueOf(&act).Elem(), testNodeKeypath, encoding.CamelCase, nil)
+		err := Unmarshal(reflect.ValueOf(&act).Elem(), testNodeKeypath, encoding.CamelCase, false, nil)
 		if err != nil {
 			t.Log(testNodeKeypath)
 			t.Fatal(err)

@@ -24,8 +24,8 @@ type Unmarshaler interface {
 
 type UnmarshalFunc func(val reflect.Value, node *syntax.Node) (bool, error)
 
-func Unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingConvention, unmarshaler Unmarshaler) error {
-	_, err := unmarshal(val, node, convention, nil, false, unmarshaler)
+func Unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingConvention, merge bool, unmarshaler Unmarshaler) error {
+	_, err := unmarshal(val, node, convention, nil, merge, unmarshaler)
 	return err
 }
 
