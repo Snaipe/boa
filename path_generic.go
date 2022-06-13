@@ -18,9 +18,8 @@ func configHome() (string, error) {
 
 func configPaths() []string {
 	var paths []string
-	for _, p := range xdg.ConfigDirs() {
-		paths = append(paths, p)
-	}
+	paths = append(paths, "/etc")
+	paths = append(paths, xdg.ConfigDirs()...)
 	configHome, err := xdg.ConfigHome()
 	if err == nil {
 		paths = append(paths, configHome)
