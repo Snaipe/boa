@@ -93,6 +93,13 @@ func (dec *Decoder) Decode(v interface{}) error {
 			name = info.Name()
 		}
 		ext := filepath.Ext(name)
+		if in == discard {
+			// HACK: if the config is the discard file, it means no config file
+			// matched in the file set. Use the TOML decoder (though it could
+			// have been another decoder) to ensure things like AutomaticEnv
+			// still work.
+			ext = ".toml"
+		}
 
 		decoder, ok := Decoders[ext]
 		if !ok {

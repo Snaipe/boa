@@ -7,6 +7,7 @@ package boa
 
 import (
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -113,8 +114,37 @@ func (cfg *FileSet) Next(exts ...string) error {
 			return nil
 		}
 	}
+	if cfg.opened == nil {
+		// Nothing matched, but feed at the very least an empty file to the decoder.
+		// This ensures that processes like automatic population from environment
+		// variables still happen
+
+		cfg.opened = discard
+		cfg.index++
+		return nil
+	}
 	return os.ErrNotExist
 }
+
+type discardFile struct {}
+
+func (discardFile) Read([]byte) (int, error) {
+	return 0, io.EOF
+}
+
+func (discardFile) Close() error {
+	return nil
+}
+
+func (discardFile) Stat() (fs.FileInfo, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (discardFile) Name() string {
+	return "null"
+}
+
+var discard discardFile
 
 // File returns the currently opened file.
 func (cfg *FileSet) File() fs.File {
