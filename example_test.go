@@ -352,6 +352,7 @@ func ExampleAutomaticEnv() {
 		"PATH=" + strings.Join([]string{"/bin", "/usr/bin", "/sbin", "/usr/sbin"}, string(os.PathListSeparator)),
 		"BOA_SHELL=/bin/sh",
 		"BOA_CONTACTS_ALICE=alice@acme.org",
+		"BOA_CONTACTS_BOB=bob@acme.org",
 	}
 
 	boa.SetOptions(
@@ -378,5 +379,5 @@ func ExampleAutomaticEnv() {
 	// Output:
 	// Path: [/bin /usr/bin /sbin /usr/sbin]
 	// Shell: /bin/sh
-	// Contacts: map[alice:alice@acme.org bob:bob@example.com snaipe:me@snai.pe]
+	// Contacts: map[alice:alice@acme.org bob:bob@acme.org snaipe:me@snai.pe]
 }

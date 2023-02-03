@@ -196,7 +196,6 @@ func PopulateFromEnv(to reflect.Value, automatic bool, names []string, lookup fu
 			}
 			if ok {
 				to.SetMapIndex(k, elem)
-				break
 			}
 		}
 
