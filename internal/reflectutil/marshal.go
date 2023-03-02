@@ -92,10 +92,16 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 		return err
 	}
 
+	nilFallback := func() error {
+		return fmt.Errorf("format cannot encode nil")
+	}
 	switch m := val.Interface().(type) {
 	case *big.Float:
 		if !val.IsNil() {
 			return marshaler.MarshalNumber(constant.Make(m))
+		}
+		nilFallback = func() error {
+			return marshaler.MarshalNumber(constant.MakeFloat64(0.0))
 		}
 	case big.Float:
 		return marshaler.MarshalNumber(constant.Make(&m))
@@ -103,11 +109,17 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 		if !val.IsNil() {
 			return marshaler.MarshalNumber(constant.Make(m))
 		}
+		nilFallback = func() error {
+			return marshaler.MarshalNumber(constant.MakeFloat64(0.0))
+		}
 	case big.Rat:
 		return marshaler.MarshalNumber(constant.Make(&m))
 	case *big.Int:
 		if !val.IsNil() {
 			return marshaler.MarshalNumber(constant.Make(m))
+		}
+		nilFallback = func() error {
+			return marshaler.MarshalNumber(constant.MakeInt64(0))
 		}
 	case big.Int:
 		return marshaler.MarshalNumber(constant.Make(&m))
@@ -123,11 +135,17 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 		if !val.IsNil() {
 			return marshaler.MarshalString(m.String())
 		}
+		nilFallback = func() error {
+			return marshaler.MarshalString("")
+		}
 	case url.URL:
 		return marshaler.MarshalString(m.String())
 	case *regexp.Regexp:
 		if !val.IsNil() {
 			return marshaler.MarshalString(m.String())
+		}
+		nilFallback = func() error {
+			return marshaler.MarshalString("")
 		}
 	case regexp.Regexp:
 		return marshaler.MarshalString(m.String())
@@ -138,7 +156,7 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 		if val.IsNil() {
 			m, ok := marshaler.(NilMarshaler)
 			if !ok {
-				return fmt.Errorf("format cannot encode nil")
+				return nilFallback()
 			}
 			return m.MarshalNil()
 		}
@@ -240,6 +258,14 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 		}
 
 		for i, kv := range kvs {
+			// If the value is nil, and we can't represent nil in the format,
+			// just omit the field entirely. There isn't much else sensible we can do.
+			if (kv.Value.Kind() == reflect.Ptr || kv.Value.Kind() == reflect.Interface) && kv.Value.IsNil() {
+				if _, ok := marshaler.(NilMarshaler); !ok {
+					continue
+				}
+			}
+
 			if err := marshaler.MarshalMapKey(val, kv, i); err != nil {
 				return err
 			}
@@ -272,6 +298,14 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 		}
 
 		for i, kv := range kvs {
+			// If the value is nil, and we can't represent nil in the format,
+			// just omit the field entirely. There isn't much else sensible we can do.
+			if (kv.Value.Kind() == reflect.Ptr || kv.Value.Kind() == reflect.Interface) && kv.Value.IsNil() {
+				if _, ok := marshaler.(NilMarshaler); !ok {
+					continue
+				}
+			}
+
 			if err := marshaler.MarshalMapKey(val, kv, i); err != nil {
 				return err
 			}
