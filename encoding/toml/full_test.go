@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"testing"
 	"time"
 
@@ -42,6 +43,7 @@ func TestTOMLFull(t *testing.T) {
 		BigRat        big.Rat
 		URL           url.URL
 		Time          time.Time
+		Regexp        regexp.Regexp
 		LocalDateTime LocalDateTime
 		LocalDate     LocalDate
 		LocalTime     LocalTime
@@ -71,6 +73,7 @@ func TestTOMLFull(t *testing.T) {
 		PtrBigRat        *big.Rat
 		PtrURL           *url.URL
 		PtrTime          *time.Time
+		PtrRegexp        *regexp.Regexp
 		PtrLocalDateTime *LocalDateTime
 		PtrLocalDate     *LocalDate
 		PtrLocalTime     *LocalTime

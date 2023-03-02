@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"net/url"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"unsafe"
@@ -123,6 +124,12 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 			return marshaler.MarshalString(m.String())
 		}
 	case url.URL:
+		return marshaler.MarshalString(m.String())
+	case *regexp.Regexp:
+		if !val.IsNil() {
+			return marshaler.MarshalString(m.String())
+		}
+	case regexp.Regexp:
 		return marshaler.MarshalString(m.String())
 	}
 
@@ -312,6 +319,7 @@ func IsValueType(t reflect.Type) bool {
 		reflect.TypeOf(big.Float{}),
 		reflect.TypeOf(big.Rat{}),
 		reflect.TypeOf(url.URL{}),
+		reflect.TypeOf(regexp.Regexp{}),
 		reflect.TypeOf([]byte(nil)):
 		return true
 	}

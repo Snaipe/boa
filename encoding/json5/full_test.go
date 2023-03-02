@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"testing"
 	"time"
 
@@ -40,6 +41,7 @@ func TestJSON5Full(t *testing.T) {
 		BigRat      big.Rat
 		URL         url.URL
 		Time        time.Time
+		Regexp      regexp.Regexp
 		Map         map[string]interface{}
 		List        []interface{}
 		PtrInt      *int
@@ -62,6 +64,7 @@ func TestJSON5Full(t *testing.T) {
 		PtrBigRat   *big.Rat
 		PtrURL      *url.URL
 		PtrTime     *time.Time
+		PtrRegexp   *regexp.Regexp
 		PtrMap      *map[string]interface{}
 		PtrList     *[]interface{}
 	}

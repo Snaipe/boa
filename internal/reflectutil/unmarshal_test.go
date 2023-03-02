@@ -9,6 +9,7 @@ import (
 	"go/constant"
 	"net/url"
 	"reflect"
+	"regexp"
 	"testing"
 
 	"snai.pe/boa/encoding"
@@ -42,6 +43,7 @@ type T struct {
 	List       []interface{}
 	Struct     *T
 	URL        *url.URL
+	Regexp     *regexp.Regexp
 }
 
 var expectedNest = T{
@@ -63,6 +65,7 @@ var expectedNest = T{
 	Complex64:  complex(float32(1), 0),
 	Complex128: complex(float64(1), 0),
 	URL:        &url.URL{Scheme: "https", Host: "snai.pe", Path: "/boa"},
+	Regexp:     regexp.MustCompile("^.*$"),
 }
 
 var expected = expectedNest
@@ -88,6 +91,7 @@ func init() {
 		"complex64":  float64(1),
 		"complex128": float64(1),
 		"url":        "https://snai.pe/boa",
+		"regexp":     "^.*$",
 	}
 	expected.List = []interface{}{
 		"string",
@@ -108,6 +112,7 @@ func init() {
 		float64(1),
 		float64(1),
 		"https://snai.pe/boa",
+		"^.*$",
 	}
 
 	type nodespec struct {
@@ -135,6 +140,7 @@ func init() {
 		{"complex64", syntax.NodeNumber, constant.MakeFloat64(1)},
 		{"complex128", syntax.NodeNumber, constant.MakeFloat64(1)},
 		{"url", syntax.NodeString, "https://snai.pe/boa"},
+		{"regexp", syntax.NodeString, "^.*$"},
 	}
 
 	m1 := syntax.Node{Type: syntax.NodeMap}

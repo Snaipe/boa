@@ -106,6 +106,7 @@ In addition, the following standard library types are marshaled and unmarshaled 
 | `*big.Rat`           | Number     |
 | `time.Time`          | String     |
 | `*url.URL`           | String     |
+| `*regexp.Regexp`     | String     |
 
 Some packages also define or support some specialized types for specific configuration objects:
 

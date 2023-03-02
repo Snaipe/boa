@@ -12,6 +12,7 @@ import (
 	"math/big"
 	"net/url"
 	"reflect"
+	"regexp"
 	"strings"
 
 	"snai.pe/boa/encoding"
@@ -507,6 +508,16 @@ func SetScalar(to reflect.Value, value interface{}, nodetype syntax.NodeType) (b
 			if err := ptr.UnmarshalBinary([]byte(value.(string))); err != nil {
 				return true, err
 			}
+			return true, nil
+		case *regexp.Regexp:
+			if nodetype != syntax.NodeString {
+				return true, newNodeErr(syntax.NodeString)
+			}
+			re, err := regexp.Compile(value.(string))
+			if err != nil {
+				return true, err
+			}
+			*ptr = *re
 			return true, nil
 		}
 	}
