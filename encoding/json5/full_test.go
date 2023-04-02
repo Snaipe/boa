@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"math/big"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"testing"
@@ -105,4 +106,52 @@ func TestJSON5Full(t *testing.T) {
 			}
 		})
 	}
+}
+
+func FuzzEncoder(f *testing.F) {
+	err := filepath.Walk("testdata", func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			f.Fatal(err)
+		}
+		if info.IsDir() {
+			return nil
+		}
+		ext := filepath.Ext(path)
+		if ext != ".json" && ext != ".json5" {
+			return nil
+		}
+
+		txt, err := ioutil.ReadFile(path)
+		if err != nil {
+			f.Fatal(err)
+		}
+		f.Add(txt)
+		return nil
+	})
+	if err != nil {
+		f.Fatal(err)
+	}
+
+	f.Fuzz(func(t *testing.T, txt []byte) {
+		t.Log(string(txt))
+		objects := []interface{}{
+			new(struct{}),
+			new(interface{}),
+			new([]interface{}),
+			new(map[interface{}]interface{}),
+		}
+		for i := range objects {
+			if err := NewDecoder(bytes.NewReader(txt)).Decode(&objects[i]); err != nil {
+				continue
+			}
+			var out bytes.Buffer
+			if err := NewEncoder(&out).Encode(&objects[i]); err != nil {
+				t.Error("failed to re-encode fuzz value", err)
+			}
+			t.Logf("encoded:\n%v", out.String())
+			if err := NewDecoder(&out).Decode(&objects[i]); err != nil {
+				t.Error("failed to re-decode fuzz value", err)
+			}
+		}
+	})
 }

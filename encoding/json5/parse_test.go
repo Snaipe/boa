@@ -164,3 +164,32 @@ func BenchmarkStandardSuite(b *testing.B) {
 		return nil
 	})
 }
+
+func FuzzParser(f *testing.F) {
+	err := filepath.Walk("testdata", func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			f.Fatal(err)
+		}
+		if info.IsDir() {
+			return nil
+		}
+		ext := filepath.Ext(path)
+		if ext != ".json" && ext != ".json5" {
+			return nil
+		}
+
+		txt, err := ioutil.ReadFile(path)
+		if err != nil {
+			f.Fatal(err)
+		}
+		f.Add(txt)
+		return nil
+	})
+	if err != nil {
+		f.Fatal(err)
+	}
+
+	f.Fuzz(func(t *testing.T, txt []byte) {
+		newParser(bytes.NewReader(txt)).Parse()
+	})
+}
