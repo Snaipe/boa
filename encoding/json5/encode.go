@@ -137,7 +137,7 @@ func (m *marshaler) writeKey(s string) (int, error) {
 		return !ok
 	}
 
-	ident := !m.json && strings.IndexFunc(s, isNotIdChar) == -1
+	ident := !m.json && len(s) > 0 && strings.IndexFunc(s, isNotIdChar) == -1
 	if ident {
 		return io.WriteString(m.Writer, s)
 	}
