@@ -79,7 +79,7 @@ func (m *marshaler) quote(in string, delim rune, json bool) (int, error) {
 
 	for _, r := range in {
 		switch r {
-		case delim, '\n', '\r', parSep, lineSep:
+		case delim, '\n', '\r', '\\', parSep, lineSep:
 			n, err := io.WriteString(m.Writer, "\\")
 			written += n
 			if err != nil {
@@ -92,6 +92,8 @@ func (m *marshaler) quote(in string, delim rune, json bool) (int, error) {
 				}
 			case '\r':
 				r = 'r'
+			case '\\':
+				r = '\\'
 			case lineSep:
 				n, err := io.WriteString(m.Writer, "u2028")
 				if err != nil {
