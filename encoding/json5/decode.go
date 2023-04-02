@@ -24,6 +24,9 @@ type unmarshaler struct {
 }
 
 func (unmarshaler) UnmarshalValue(val reflect.Value, node *Node) (bool, error) {
+	if !val.CanAddr() {
+		return false, nil
+	}
 	switch unmarshaler := val.Addr().Interface().(type) {
 	case json.Unmarshaler:
 		trimmed := node.Trim(punctAndWhitespace...)
