@@ -64,7 +64,7 @@ func TestFileset(t *testing.T) {
 		{
 			name: "multi-name-multi-path",
 			open: func(t *testing.T, c *testCase) *FileSet {
-				return OpenMultiple([]string{"first", "second"}, pathsForDirs(t, "path1", "path2"))
+				return OpenMultiple([]string{"first", "second"}, pathsForDirs(t, "path1", "path2")...)
 			},
 			expectUsed: []string{
 				"path1/first.json", "path2/first.toml",
@@ -76,7 +76,7 @@ func TestFileset(t *testing.T) {
 			open: func(t *testing.T, c *testCase) *FileSet {
 				return OpenMultiple(
 					[]string{"first", "second"},
-					pathsForDirs(t, "empty1", "path1"),
+					pathsForDirs(t, "empty1", "path1")...,
 				)
 			},
 			expectUsed: []string{"path1/first.json", "path1/second.toml"},

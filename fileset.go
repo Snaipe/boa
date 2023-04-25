@@ -56,7 +56,7 @@ func Open(name string, paths ...fs.FS) *FileSet {
 // search paths. With a single `name`, the behaviour is identical to `Open`.
 //
 // The iteration order is described in detail in `Next()`.
-func OpenMultiple(names []string, paths []fs.FS) *FileSet {
+func OpenMultiple(names []string, paths ...fs.FS) *FileSet {
 	checkNames(names...)
 	if paths == nil {
 		paths = ConfigPaths()
@@ -132,7 +132,7 @@ func fsPath(f fs.FS) string {
 //
 // This ordering of the names slice ensures that later entries take precedence over
 // earlier ones, regardless of which directory they're in.
-
+//
 // The files are matched in the order of the specified exts slice rather than
 // directory (or lexical) order. For instance, if the extension slice
 // is ".json5", ".json" on a path containing <name>.json5 and <name>.json will
