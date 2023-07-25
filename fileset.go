@@ -105,9 +105,11 @@ func (cfg *FileSet) Close() error {
 }
 
 func fsPath(f fs.FS) string {
-	switch f.(type) {
+	switch f := f.(type) {
 	case embed.FS:
 		return "(embedded)"
+	case singleFileFS:
+		return fmt.Sprintf("%s (as %s)", f.Path, f.Name)
 	default:
 		return fmt.Sprint(f)
 	}
@@ -225,4 +227,36 @@ func (cfg *FileSet) Skip() {
 		cfg.fsIndex = 0
 		cfg.nameIndex++
 	}
+}
+
+// NewSingleFileFS returns an io/fs.FS containing the file at path, under the
+// specified name.
+//
+// For instance, NewSingleFileFS("program.toml", os.Discard) will return an
+// FS object such that opening the program.toml file opens the os.Discard file
+// instead.
+//
+// This is particularly useful to pass single file config overrides to Open
+// and OpenMultiple.
+//
+// If path is the empty string, NewSingleFileFS returns nil.
+func NewSingleFileFS(name, path string) fs.FS {
+	if path == "" {
+		return nil
+	}
+	return singleFileFS{Name: name, Path: path}
+}
+
+type singleFileFS struct {
+	Name, Path string
+}
+
+func (f singleFileFS) Open(name string) (fs.File, error) {
+	if !fs.ValidPath(name) {
+		return nil, fs.ErrInvalid
+	}
+	if name != f.Name {
+		return nil, fs.ErrNotExist
+	}
+	return os.Open(f.Path)
 }

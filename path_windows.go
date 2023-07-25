@@ -18,9 +18,12 @@ func configHome() (string, error) {
 	return appdata, nil
 }
 
+func configDirs() []string {
+	return []string{`C:\ProgramData`}
+}
+
 func configPaths() []string {
-	paths := make([]string, 0, 2)
-	paths = append(paths, `C:\ProgramData`)
+	paths := configDirs()
 	configHome, err := ConfigHome()
 	if err == nil {
 		paths = append(paths, configHome)

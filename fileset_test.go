@@ -1,9 +1,15 @@
+// Copyright 2022 Franklin "Snaipe" Mathieu.
+//
+// Use of this source code is governed by the MIT license that can be
+// found in the LICENSE file.
+
 package boa
 
 import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"testing"
@@ -103,4 +109,30 @@ func TestFileset(t *testing.T) {
 			assertUsedEqual(t, tc.expectUsed, cfg.Used())
 		})
 	}
+}
+
+func ExampleSetConfigHomeFS() {
+
+	var config struct {
+		Greeting string `help:"A nice hello."`
+	}
+
+	// Use NewSingleFileFS to expose example_defaults.toml as program.toml.
+	//
+	// This could be used to override the default config paths via the
+	// environment or a flag
+	SetConfigHomeFS(
+		NewSingleFileFS("program.toml", "example_defaults.toml"),
+	)
+
+	cfg := Open("program.toml")
+	defer cfg.Close()
+
+	// Load the defaults into the config variable
+	if err := NewDecoder(cfg).Decode(&config); err != nil {
+		log.Fatalln(err)
+	}
+
+	fmt.Println(config.Greeting)
+	// Output: Hello from TOML!
 }

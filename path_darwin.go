@@ -19,9 +19,12 @@ func configHome() (string, error) {
 	return filepath.Join(home, "Library", "Preferences"), nil
 }
 
+func configDirs() []string {
+	return []string{"/Library/Preferences"}
+}
+
 func configPaths() []string {
-	paths := make([]string, 0, 2)
-	paths = append(paths, "/Library/Preferences")
+	paths := configDirs()
 	configHome, err := ConfigHome()
 	if err == nil {
 		paths = append(paths, configHome)

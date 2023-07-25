@@ -29,6 +29,18 @@ func ConfigHome() (string, error) {
 	return configHome()
 }
 
+// SystemConfigDirs returns the filesystem paths to the system configuration
+// directories.
+//
+// The returned paths are OS-specific. Typical valies per OS are:
+//
+//   - Linux & UNIX derivatives:  /etc, /etc/xdg ($XDG_CONFIG_DIRS)
+//   - macOS:                     /Library/Preferences
+//   - Windows:                   C:\ProgramData
+func SystemConfigDirs() []string {
+	return configDirs()
+}
+
 // ConfigPaths returns, in order of least important to most important, the
 // paths that may hold configuration files for the current user.
 //
@@ -44,13 +56,16 @@ func ConfigHome() (string, error) {
 //   - macOS:                     /Library/Preferences, ~/Library/Preferences
 //   - Windows:                   C:\ProgramData, C:\Users\<user>\AppData\Roaming
 func ConfigPaths() []fs.FS {
-	paths := configPaths()
-	fs := make([]fs.FS, 0, len(paths)+1)
+	paths := configDirs()
+	fs := make([]fs.FS, 0, len(paths)+2)
 	if defaultPath != nil {
 		fs = append(fs, defaultPath)
 	}
 	for _, path := range paths {
 		fs = append(fs, os.DirFS(path))
+	}
+	if cfs := ConfigHomeFS(); cfs != nil {
+		fs = append(fs, cfs)
 	}
 	return fs
 }
@@ -62,4 +77,27 @@ var defaultPath fs.FS
 // It is added as the least important path in the slice returned by ConfigPaths.
 func SetDefaults(defaults fs.FS) {
 	defaultPath = defaults
+}
+
+var configHomeFS fs.FS
+
+// SetConfigHomeFS overrides the user configuration home, which gets added as
+// the most important path in the slice returned by ConfigPaths.
+func SetConfigHomeFS(f fs.FS) {
+	configHomeFS = f
+}
+
+// ConfigHomeFS returns the fs.FS for the user's configuration home.
+//
+// By default, it returns os.DirFS(ConfigHome()) (or nil if unsuccessful),
+// unless SetConfigHomeFS has been called, in which case the FS that was set
+// by the function is returned.
+func ConfigHomeFS() fs.FS {
+	if configHomeFS == nil {
+		path, err := configHome()
+		if err == nil {
+			configHomeFS = os.DirFS(path)
+		}
+	}
+	return configHomeFS
 }

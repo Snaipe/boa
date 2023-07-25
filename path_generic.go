@@ -16,10 +16,15 @@ func configHome() (string, error) {
 	return xdg.ConfigHome()
 }
 
-func configPaths() []string {
+func configDirs() []string {
 	var paths []string
 	paths = append(paths, "/etc")
 	paths = append(paths, xdg.ConfigDirs()...)
+	return paths
+}
+
+func configPaths() []string {
+	paths := configDirs()
 	configHome, err := xdg.ConfigHome()
 	if err == nil {
 		paths = append(paths, configHome)
