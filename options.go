@@ -50,18 +50,17 @@ func LineBreak(lb string) EncoderOption {
 //
 // Supported naming conventions names are:
 //
-//     - "camelCase"
-//     - "PascalCase"
-//     - "snake_case"
-//     - "SCREAMING_SNAKE_CASE"
-//     - "kebab-case"
-//     - "SCREAMING-KEBAB-CASE"
-//     - "camel_Snake_Case"
-//     - "Pascal_Snake_Case"
-//     - "Train-Case"
-//     - "flatcase"
-//     - "UPPERFLATCASE"
-//
+//   - "camelCase"
+//   - "PascalCase"
+//   - "snake_case"
+//   - "SCREAMING_SNAKE_CASE"
+//   - "kebab-case"
+//   - "SCREAMING-KEBAB-CASE"
+//   - "camel_Snake_Case"
+//   - "Pascal_Snake_Case"
+//   - "Train-Case"
+//   - "flatcase"
+//   - "UPPERFLATCASE"
 func NamingConvention(name interface{}) CommonOption {
 	var convention encoding.NamingConvention
 	switch v := name.(type) {

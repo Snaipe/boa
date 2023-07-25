@@ -22,10 +22,9 @@ import (
 //
 // The returned path is generally OS-specific. Typical values per OS are:
 //
-//     - Linux & UNIX derivatives:  ~/.config  ($XDG_CONFIG_HOME)
-//     - macOS:                     ~/Library/Preferences
-//     - Windows:                   C:\Users\<user>\AppData\Roaming (%APPDATA%)
-//
+//   - Linux & UNIX derivatives:  ~/.config  ($XDG_CONFIG_HOME)
+//   - macOS:                     ~/Library/Preferences
+//   - Windows:                   C:\Users\<user>\AppData\Roaming (%APPDATA%)
 func ConfigHome() (string, error) {
 	return configHome()
 }
@@ -41,9 +40,9 @@ func ConfigHome() (string, error) {
 // User directories are always more important than system directories. Typical
 // values per OS are:
 //
-//     - Linux & UNIX derivatives:  /etc, /etc/xdg, ~/.config ($XDG_CONFIG_DIRS & $XDG_CONFIG_HOME)
-//     - macOS:                     /Library/Preferences, ~/Library/Preferences
-//     - Windows:                   C:\ProgramData, C:\Users\<user>\AppData\Roaming
+//   - Linux & UNIX derivatives:  /etc, /etc/xdg, ~/.config ($XDG_CONFIG_DIRS & $XDG_CONFIG_HOME)
+//   - macOS:                     /Library/Preferences, ~/Library/Preferences
+//   - Windows:                   C:\ProgramData, C:\Users\<user>\AppData\Roaming
 func ConfigPaths() []fs.FS {
 	paths := configPaths()
 	fs := make([]fs.FS, 0, len(paths)+1)

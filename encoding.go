@@ -22,8 +22,8 @@ import (
 // Decoders map filename extensions to decoders.  By default, the following
 // coniguration languages are associated with the extensions:
 //
-//     - JSON5: .json and .json5
-//     - TOML: .toml
+//   - JSON5: .json and .json5
+//   - TOML: .toml
 //
 // The contents of this map controls how the Decoder type deduces which
 // decoder to use based on the file extension of the input.
@@ -36,8 +36,8 @@ var Decoders = map[string]func(io.Reader) encoding.Decoder{
 // Encoders map filename extensions to encoders.  By default, the following
 // coniguration languages are associated with the extensions:
 //
-//     - JSON5: .json and .json5
-//     - TOML: .toml
+//   - JSON5: .json and .json5
+//   - TOML: .toml
 //
 // The contents of this map controls how the Encoder type deduces which
 // encoder to use based on the file extension of the output.
@@ -194,8 +194,8 @@ func (enc *Encoder) Encode(v interface{}) error {
 // The configuration language is deduced based on the file extension of the
 // specified path:
 //
-//     - JSON5: .json and .json5
-//     - TOML: .toml
+//   - JSON5: .json and .json5
+//   - TOML: .toml
 //
 // This is a convenience function that is functionally equivalent to:
 //
@@ -216,8 +216,8 @@ func Load(name string, v interface{}) error {
 // The configuration language is deduced based on the file extension of the
 // specified path:
 //
-//     - JSON5: .json and .json5
-//     - TOML: .toml
+//   - JSON5: .json and .json5
+//   - TOML: .toml
 //
 // Custom file extensions are not supported, and one of the decoders in
 // snai.pe/boa/encoding must be used instead.
