@@ -124,7 +124,7 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 	case big.Int:
 		return marshaler.MarshalNumber(constant.Make(&m))
 	case encoding.TextMarshaler:
-		if m != nil {
+		if !(val.Kind() == reflect.Interface || val.Kind() == reflect.Pointer) || !val.IsNil() {
 			txt, err := m.MarshalText()
 			if err != nil {
 				return err
