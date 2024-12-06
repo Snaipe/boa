@@ -124,11 +124,13 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 	case big.Int:
 		return marshaler.MarshalNumber(constant.Make(&m))
 	case encoding.TextMarshaler:
-		txt, err := m.MarshalText()
-		if err != nil {
-			return err
+		if m != nil {
+			txt, err := m.MarshalText()
+			if err != nil {
+				return err
+			}
+			return marshaler.MarshalString(BytesToString(txt))
 		}
-		return marshaler.MarshalString(BytesToString(txt))
 	case []byte:
 		return marshaler.MarshalString(BytesToString(m))
 	case *url.URL:
@@ -141,11 +143,8 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 	case url.URL:
 		return marshaler.MarshalString(m.String())
 	case *regexp.Regexp:
-		if !val.IsNil() {
+		if m != nil {
 			return marshaler.MarshalString(m.String())
-		}
-		nilFallback = func() error {
-			return marshaler.MarshalString("")
 		}
 	case regexp.Regexp:
 		return marshaler.MarshalString(m.String())
