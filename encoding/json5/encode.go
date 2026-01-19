@@ -306,6 +306,15 @@ func (m *marshaler) MarshalMapValuePost(mv reflect.Value, kv reflectutil.MapEntr
 	return m.WriteNewline()
 }
 
+func (m *marshaler) MarshalStructValuePost(mv reflect.Value, kv reflectutil.MapEntry, i int) error {
+	visFields, _ := reflectutil.VisibleFields(mv, m.NamingConvention, m)
+	l := len(visFields) - 1
+	if i != l || !m.json {
+		m.WriteString(",")
+	}
+	return m.WriteNewline()
+}
+
 func (m *marshaler) MarshalNode(node *syntax.Node) error {
 	for _, tok := range node.Tokens {
 		if m.json {
