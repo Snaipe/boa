@@ -73,6 +73,10 @@ type PostMapValueMarshaler interface {
 	MarshalMapValuePost(mv reflect.Value, kv MapEntry, i int) error
 }
 
+type PostStructValueMarshaler interface {
+	MarshalStructValuePost(mv reflect.Value, kv MapEntry, i int) error
+}
+
 type NaNMarshaler interface {
 	MarshalNaN(nan float64) error
 }
@@ -316,8 +320,8 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 			if err := Marshal(kv.Value, marshaler, kv.Options.Naming); err != nil {
 				return err
 			}
-			if post, ok := marshaler.(PostMapValueMarshaler); ok {
-				if err := post.MarshalMapValuePost(val, kv, i); err != nil {
+			if post, ok := marshaler.(PostStructValueMarshaler); ok {
+				if err := post.MarshalStructValuePost(val, kv, i); err != nil {
 					return err
 				}
 			}

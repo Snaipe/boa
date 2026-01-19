@@ -424,6 +424,10 @@ func (m *marshaler) MarshalMapValuePost(mv reflect.Value, kv reflectutil.MapEntr
 	return nil
 }
 
+func (m *marshaler) MarshalStructValuePost(mv reflect.Value, kv reflectutil.MapEntry, i int) error {
+	return m.MarshalMapValuePost(mv, kv, i)
+}
+
 func (m *marshaler) MarshalNode(node *syntax.Node) error {
 	for _, tok := range node.Tokens {
 		if err := m.WriteString(tok.Raw); err != nil {
