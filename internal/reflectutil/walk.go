@@ -16,13 +16,13 @@ func DeepEqual(lhs, rhs interface{}, fn func(lhs, rhs reflect.Value) (bool, erro
 }
 
 func deepEqual(lhs, rhs reflect.Value, fn func(lhs, rhs reflect.Value) (bool, error)) error {
-	for lhs.Kind() == reflect.Ptr {
+	for lhs.Kind() == reflect.Pointer {
 		if lhs.IsNil() {
 			break
 		}
 		lhs = lhs.Elem()
 	}
-	for rhs.Kind() == reflect.Ptr {
+	for rhs.Kind() == reflect.Pointer {
 		if rhs.IsNil() {
 			break
 		}
@@ -39,7 +39,7 @@ func deepEqual(lhs, rhs reflect.Value, fn func(lhs, rhs reflect.Value) (bool, er
 	}
 
 	switch lhs.Kind() {
-	case reflect.Ptr, reflect.Interface:
+	case reflect.Pointer, reflect.Interface:
 		if lhs.IsNil() != rhs.IsNil() {
 			return fmt.Errorf("one value is nil while the other isn't")
 		}

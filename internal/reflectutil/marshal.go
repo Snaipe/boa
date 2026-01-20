@@ -151,7 +151,7 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 	}
 
 	switch kind := val.Kind(); kind {
-	case reflect.Interface, reflect.Ptr:
+	case reflect.Interface, reflect.Pointer:
 		if val.IsNil() {
 			m, ok := marshaler.(NilMarshaler)
 			if !ok {
@@ -259,7 +259,7 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 		for i, kv := range kvs {
 			// If the value is nil, and we can't represent nil in the format,
 			// just omit the field entirely. There isn't much else sensible we can do.
-			if (kv.Value.Kind() == reflect.Ptr || kv.Value.Kind() == reflect.Interface) && kv.Value.IsNil() {
+			if (kv.Value.Kind() == reflect.Pointer || kv.Value.Kind() == reflect.Interface) && kv.Value.IsNil() {
 				if _, ok := marshaler.(NilMarshaler); !ok {
 					continue
 				}
@@ -299,7 +299,7 @@ func Marshal(val reflect.Value, marshaler Marshaler, convention NamingConvention
 		for i, kv := range kvs {
 			// If the value is nil, and we can't represent nil in the format,
 			// just omit the field entirely. There isn't much else sensible we can do.
-			if (kv.Value.Kind() == reflect.Ptr || kv.Value.Kind() == reflect.Interface) && kv.Value.IsNil() {
+			if (kv.Value.Kind() == reflect.Pointer || kv.Value.Kind() == reflect.Interface) && kv.Value.IsNil() {
 				if _, ok := marshaler.(NilMarshaler); !ok {
 					continue
 				}
@@ -364,7 +364,7 @@ func IsValueType(t reflect.Type) bool {
 // If v is a struct, it returns the number of fields
 // For everything else, Len returns 1.
 func Len(v reflect.Value) int {
-	for v.Kind() == reflect.Ptr || v.Kind() == reflect.Interface {
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
 		v = v.Elem()
 	}
 	switch v.Kind() {

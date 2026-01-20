@@ -33,7 +33,7 @@ type MultiFile interface {
 
 func (unmarshaler *UnmarshalerBase) Decode(in io.Reader, v interface{}) error {
 	ptr := reflect.ValueOf(v)
-	if ptr.Kind() != reflect.Ptr {
+	if ptr.Kind() != reflect.Pointer {
 		panic("decode: must pass in pointer value")
 	}
 

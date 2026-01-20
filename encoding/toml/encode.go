@@ -106,7 +106,7 @@ func (m *marshaler) writeKeyPath(s []string) error {
 }
 
 func isValueType(v reflect.Value) bool {
-	for v.Kind() == reflect.Interface || v.Kind() == reflect.Ptr {
+	for v.Kind() == reflect.Interface || v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 	if !v.IsValid() {
@@ -114,7 +114,7 @@ func isValueType(v reflect.Value) bool {
 		return true
 	}
 	t := v.Type()
-	for t.Kind() == reflect.Ptr {
+	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	if reflectutil.IsValueType(t) {
@@ -126,7 +126,7 @@ func isValueType(v reflect.Value) bool {
 		}
 		for i := 0; i < v.Len(); i++ {
 			elem := v.Index(i)
-			for elem.Kind() == reflect.Interface || elem.Kind() == reflect.Ptr {
+			for elem.Kind() == reflect.Interface || elem.Kind() == reflect.Pointer {
 				elem = elem.Elem()
 			}
 			ok := isValueType(elem)
@@ -349,7 +349,7 @@ func (m *marshaler) MarshalMapKey(mv reflect.Value, kv reflectutil.MapEntry, i i
 		}
 		m.first = false
 	} else {
-		for v.Kind() == reflect.Interface || v.Kind() == reflect.Ptr {
+		for v.Kind() == reflect.Interface || v.Kind() == reflect.Pointer {
 			v = v.Elem()
 		}
 		if !reflectutil.IsList(v.Type()) {
@@ -414,7 +414,7 @@ func (m *marshaler) MarshalMapValuePost(mv reflect.Value, kv reflectutil.MapEntr
 			}
 		}
 	} else {
-		for v.Kind() == reflect.Interface || v.Kind() == reflect.Ptr {
+		for v.Kind() == reflect.Interface || v.Kind() == reflect.Pointer {
 			v = v.Elem()
 		}
 		if !reflectutil.IsList(v.Type()) {

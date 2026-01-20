@@ -105,7 +105,7 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 
 	switch kind := val.Kind(); kind {
 
-	case reflect.Ptr:
+	case reflect.Pointer:
 		if node.Type == syntax.NodeNil {
 			// We have an explicit nil, therefore we must set the pointer to nil.
 			val.Set(reflect.Zero(typ))
@@ -306,7 +306,7 @@ func Set(val reflect.Value, node *syntax.Node, convention encoding.NamingConvent
 	}
 
 	switch kind := val.Kind(); kind {
-	case reflect.Ptr:
+	case reflect.Pointer:
 		if val.IsNil() {
 			val.Set(reflect.New(val.Type().Elem()))
 		}
@@ -339,7 +339,7 @@ func Set(val reflect.Value, node *syntax.Node, convention encoding.NamingConvent
 
 	velem := reflect.ValueOf(elem)
 	switch kind := rval.Kind(); kind {
-	case reflect.Ptr:
+	case reflect.Pointer:
 		if rval.IsNil() {
 			rval.Set(reflect.New(typ.Elem()))
 			val.Set(rval)
