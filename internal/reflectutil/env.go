@@ -34,7 +34,7 @@ func UnmarshalText(to reflect.Value, value string) (bool, error) {
 
 	switch kind := to.Kind(); kind {
 
-	case reflect.Ptr:
+	case reflect.Pointer:
 		ptr := reflect.New(to.Type().Elem())
 		ok, err := UnmarshalText(ptr, value)
 		if ok && err == nil {
@@ -96,7 +96,7 @@ func PopulateFromEnv(to reflect.Value, automatic bool, names []string, lookup fu
 		return true, nil
 	}
 
-	if to.Kind() == reflect.Ptr {
+	if to.Kind() == reflect.Pointer {
 		if !to.IsNil() {
 			return PopulateFromEnv(to.Elem(), automatic, names, lookup)
 		}

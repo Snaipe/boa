@@ -148,7 +148,7 @@ func (m *marshaler) writeKey(s string) (int, error) {
 func (m *marshaler) MarshalValue(v reflect.Value) (bool, error) {
 	switch marshaler := v.Interface().(type) {
 	case json.Marshaler:
-		if v.Kind() == reflect.Ptr && v.IsNil() {
+		if v.Kind() == reflect.Pointer && v.IsNil() {
 			return true, m.MarshalNil()
 		}
 		txt, err := marshaler.MarshalJSON()

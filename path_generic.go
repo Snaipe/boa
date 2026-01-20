@@ -4,7 +4,6 @@
 // found in the LICENSE file.
 
 //go:build !darwin && !windows
-// +build !darwin,!windows
 
 package boa
 
