@@ -160,6 +160,10 @@ func (cfg *FileSet) Next(exts ...string) error {
 				case errors.Is(err, fs.ErrNotExist):
 					continue
 				case err != nil:
+					pathError := &fs.PathError{}
+					if ok := errors.As(err, &pathError); ok {
+						pathError.Path = filepath.Join(fsPath(cfg.fs[cfg.fsIndex]), stem, ext)
+					}
 					return err
 				}
 				cfg.used = append(cfg.used, fmt.Sprintf("%v/%v%v", fsPath(cfg.fs[cfg.fsIndex]), stem, ext))
