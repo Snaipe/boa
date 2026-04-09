@@ -326,3 +326,46 @@ func (l *Lexer) AcceptUntil(fn func(rune) bool) (string, error) {
 		out.WriteRune(r)
 	}
 }
+
+// AcceptRun accepts characters from the character set chars, returning the
+// accepted string. It stops at EOF or at any character not in chars.
+func (l *Lexer) AcceptRun(chars string) (string, error) {
+	return l.AcceptUntil(func(r rune) bool {
+		return strings.ContainsRune(chars, r)
+	})
+}
+
+// EmitRaw emits a pre-built token directly to the token stream.
+func (l *Lexer) EmitRaw(tok Token) {
+	l.token.Reset()
+	l.tokens <- tok
+	l.TokenPosition = l.NextPosition
+}
+
+// ParseUnicodeEscape reads length hex digits and returns the corresponding rune.
+func (l *Lexer) ParseUnicodeEscape(length int) (rune, error) {
+	var codepoint rune
+	for i := 0; i < length; i++ {
+		r, err := l.AcceptFunc(func(r rune) bool {
+			return strings.ContainsRune("0123456789abcdefABCDEF", r)
+		})
+		if err != nil {
+			if err == io.EOF {
+				err = io.ErrUnexpectedEOF
+			}
+			return 0, err
+		}
+
+		var digit rune
+		switch {
+		case r >= 'a':
+			digit = 10 + r - 'a'
+		case r >= 'A':
+			digit = 10 + r - 'A'
+		default:
+			digit = r - '0'
+		}
+		codepoint = codepoint | (digit << (4 * (length - 1 - i)))
+	}
+	return codepoint, nil
+}

@@ -45,8 +45,23 @@ func (encoder *encoder) Encode(v interface{}) error {
 	return encoder.marshaler.Encode(v)
 }
 
+type EncoderOption func(*encoder)
+
+func Reformat() EncoderOption {
+	return func(encoder *encoder) {
+		encoder.marshaler.reformat = true
+	}
+}
+
 func (encoder *encoder) Option(opts ...interface{}) encoding.Encoder {
-	if err := encoder.marshaler.Option(nil, opts...); err != nil {
+	handle := func(opt interface{}) bool {
+		setopt, ok := opt.(EncoderOption)
+		if ok {
+			setopt(encoder)
+		}
+		return ok
+	}
+	if err := encoder.marshaler.Option(handle, opts...); err != nil {
 		panic(err)
 	}
 	return encoder
@@ -57,15 +72,21 @@ type marshaler struct {
 	structTagParser
 
 	// state
-	first     bool
-	curdepth  int
-	listdepth int
-	valdepth  int
-	inline    bool
-	inlinerun bool
-	newline   bool
-	path      []string
-	listofmap []bool
+	first       bool
+	curdepth    int
+	listdepth   int
+	valdepth    int
+	inline      bool
+	inlinerun   bool
+	newline     bool
+	path        []string
+	listofmap   []bool
+	skipLeadWS      bool // reformat: skip leading whitespace of the next value node
+	sectionCount    int  // reformat: number of section headers emitted so far
+	hadTopLevelKeys bool // reformat: true if any key-value entry appeared before the first section
+
+	// options
+	reformat bool
 }
 
 func (m *marshaler) depth(offset int) int {
@@ -153,8 +174,8 @@ func isValueType(v reflect.Value) bool {
 }
 
 func (m *marshaler) MarshalValue(v reflect.Value) (bool, error) {
-	if m.valdepth == 0 && isValueType(v) {
-		return false, fmt.Errorf("cannot marshal single value %v: document must contain tables, but %T is not a map or struct.", v.Interface(), v.Interface())
+	if m.valdepth == 0 && len(m.path) == 0 && isValueType(v) {
+		return false, fmt.Errorf("cannot marshal %T as a TOML document: top-level value must be a table (map or struct)", v.Interface())
 	}
 	switch val := v.Interface().(type) {
 	case *time.Time, time.Time:
@@ -237,6 +258,9 @@ func (m *marshaler) MarshalListElem(l, v reflect.Value, i int) (bool, error) {
 			}
 		}
 	} else {
+		if len(m.path) == 0 {
+			return false, fmt.Errorf("cannot marshal top-level array of tables as TOML: arrays of tables must be nested under a key")
+		}
 		if !m.first {
 			if err := m.WriteNewline(); err != nil {
 				return false, err
@@ -428,8 +452,158 @@ func (m *marshaler) MarshalStructValuePost(mv reflect.Value, kv reflectutil.MapE
 	return m.MarshalMapValuePost(mv, kv, i)
 }
 
-func (m *marshaler) MarshalNode(node *syntax.Node) error {
-	for _, tok := range node.Tokens {
+// splitLeading splits tokens into a "leading" prefix (whitespace, newlines, and
+// comments that appear before the first structural token) and the remaining
+// "content" tokens. It also returns the index at which comments begin within
+// the leading prefix, so callers can distinguish blank-line tokens from comment
+// tokens when normalising section spacing.
+func splitLeading(tokens []syntax.Token) (leading, content []syntax.Token, commentStart int) {
+	i := 0
+	for i < len(tokens) {
+		tt := tokens[i].Type
+		if tt != syntax.TokenWhitespace && tt != syntax.TokenNewline && tt != syntax.TokenComment {
+			break
+		}
+		i++
+	}
+	leading = tokens[:i]
+	content = tokens[i:]
+
+	// Within leading, find where the first comment appears so we can keep the
+	// blank-line normalization separate from the comment block.
+	commentStart = len(leading)
+	for j, tok := range leading {
+		if tok.Type == syntax.TokenComment || tok.Type == syntax.TokenInlineComment {
+			commentStart = j
+			break
+		}
+	}
+	return
+}
+
+func (m *marshaler) MarshalNode(node syntax.Value) error {
+	tokens := node.Base().Tokens
+	if !m.reformat {
+		for _, tok := range tokens {
+			if err := m.WriteString(tok.Raw); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	kp, isKey := node.(*KeyPath)
+	if !isKey {
+		// Value node: skip one leading whitespace token when preceded by ` = `
+		// (which already carries its own trailing space).
+		skip := m.skipLeadWS
+		m.skipLeadWS = false
+		for _, tok := range tokens {
+			if skip && tok.Type == syntax.TokenWhitespace {
+				skip = false
+				continue
+			}
+			skip = false
+			if err := m.WriteString(tok.Raw); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	if len(kp.Tokens) == 0 {
+		return nil
+	}
+	last := kp.Tokens[len(kp.Tokens)-1]
+	leading, content, commentStart := splitLeading(tokens)
+
+	switch last.Type {
+
+	case TokenEqual:
+		// key = value — emit leading verbatim (preserves comments and their
+		// indentation), then emit the key with normalised spacing around `=`.
+		m.hadTopLevelKeys = true
+		for _, tok := range leading {
+			if err := m.WriteString(tok.Raw); err != nil {
+				return err
+			}
+		}
+		// Skip whitespace tokens immediately before `=` and replace with ` = `.
+		eqIdx := len(content) - 1 // `=` is always last
+		wsStart := eqIdx
+		for wsStart > 0 && content[wsStart-1].Type == syntax.TokenWhitespace {
+			wsStart--
+		}
+		for _, tok := range content[:wsStart] {
+			if err := m.WriteString(tok.Raw); err != nil {
+				return err
+			}
+		}
+		if err := m.WriteString(" = "); err != nil {
+			return err
+		}
+		m.skipLeadWS = true
+		return nil
+
+	case TokenRSquare, TokenDoubleRSquare:
+		// [section] or [[array of tables]] header.
+		//
+		// Normalise blank-line spacing: ensure exactly one blank line separates
+		// this header from the previous content (except at the very start of the
+		// document). The previous entry's suffix already ends with '\n', so we
+		// only need one additional '\n' in the leading to produce a blank line.
+
+		needBlank := m.sectionCount > 0 || m.hadTopLevelKeys
+		if needBlank {
+			// Count newlines in the pre-comment portion of leading.
+			nlCount := 0
+			for _, tok := range leading[:commentStart] {
+				if tok.Type == syntax.TokenNewline {
+					nlCount++
+				}
+			}
+			// Emit exactly one newline (the blank line), normalising whatever
+			// was originally there (0 → add one, 2+ → reduce to one).
+			if err := m.WriteString("\n"); err != nil {
+				return err
+			}
+			// Preserve any whitespace that indented comments in the original.
+			for _, tok := range leading[:commentStart] {
+				if tok.Type == syntax.TokenWhitespace {
+					if err := m.WriteString(tok.Raw); err != nil {
+						return err
+					}
+				}
+			}
+		} else {
+			// First section (nothing before it): emit pre-comment leading verbatim.
+			for _, tok := range leading[:commentStart] {
+				if err := m.WriteString(tok.Raw); err != nil {
+					return err
+				}
+			}
+		}
+		// Emit the comment block (and surrounding newlines) verbatim.
+		for _, tok := range leading[commentStart:] {
+			if err := m.WriteString(tok.Raw); err != nil {
+				return err
+			}
+		}
+		m.sectionCount++
+		// Emit the bracket content, skipping internal whitespace.
+		for _, tok := range content {
+			if tok.Type == syntax.TokenWhitespace {
+				continue
+			}
+			if err := m.WriteString(tok.Raw); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	// Fallback: emit verbatim.
+	for _, tok := range tokens {
 		if err := m.WriteString(tok.Raw); err != nil {
 			return err
 		}
@@ -437,8 +611,8 @@ func (m *marshaler) MarshalNode(node *syntax.Node) error {
 	return nil
 }
 
-func (m *marshaler) MarshalNodePost(node *syntax.Node) error {
-	for _, tok := range node.Suffix {
+func (m *marshaler) MarshalNodePost(node syntax.Value) error {
+	for _, tok := range node.Base().Suffix {
 		if err := m.WriteString(tok.Raw); err != nil {
 			return err
 		}

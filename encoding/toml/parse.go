@@ -16,7 +16,7 @@ import (
 
 type parser struct {
 	lexer *Lexer
-	prev  *Token
+	prev  []Token
 }
 
 func newParser(in io.Reader) Parser {
@@ -26,24 +26,34 @@ func newParser(in io.Reader) Parser {
 	return &p
 }
 
-func (p *parser) Next(tokens *[]Token, allowed ...TokenType) (token Token, err error) {
+func (p *parser) back(tokens ...Token) {
+	for i := len(tokens) - 1; i >= 0; i-- {
+		p.prev = append(p.prev, tokens[i])
+	}
+}
+
+func (p *parser) Next(tokens *[]Token, allowed ...TokenType) Token {
 outer:
 	for {
-		if p.prev != nil {
-			token, p.prev = *p.prev, nil
+		var token Token
+		if len(p.prev) > 0 {
+			last := len(p.prev) - 1
+			token, p.prev = p.prev[last], p.prev[:last]
 		} else {
 			token = p.lexer.Next()
 		}
 		if token.Type == TokenError {
-			return token, p.Error(token, nil)
+			p.fail(token, nil)
 		}
 		for _, typ := range allowed {
 			if token.Type == typ {
-				*tokens = append(*tokens, token)
+				if tokens != nil {
+					*tokens = append(*tokens, token)
+				}
 				continue outer
 			}
 		}
-		return token, nil
+		return token
 	}
 }
 
@@ -96,19 +106,30 @@ func (e *DuplicateKeyError) Error() string {
 	return fmt.Sprintf("%s %s is already defined at line %d, column %d", e.Kind, pretty(e.Prefix, e.Path), e.Position.Line, e.Position.Column)
 }
 
-func (p *parser) Error(token Token, err error) error {
+func (p *parser) fail(token Token, err error) {
 	if token.Type == TokenError {
-		return token.Value.(error)
+		panic(token.Value.(error))
 	}
 	err = TokenTypeError{Token: token, Err: err}
-	err = &Error{Cursor: token.Start, Err: err}
-	return err
+	panic(&Error{Cursor: token.Start, Err: err})
 }
 
-func (p *parser) Parse() (*Node, error) {
-	var document Node
-	document.Type = NodeDocument
+func (p *parser) Parse() (doc *Document, err error) {
+	defer func() {
+		if e := recover(); e != nil {
+			if ee, ok := e.(*Error); ok {
+				err = ee
+			} else if ee, ok := e.(error); ok {
+				err = ee
+			} else {
+				panic(e)
+			}
+		}
+	}()
+	return p.document(), nil
+}
 
+func (p *parser) document() *Document {
 	type Table struct {
 		at       Cursor
 		idx      int
@@ -118,55 +139,45 @@ func (p *parser) Parse() (*Node, error) {
 		kind     string
 	}
 
-	rootval := Node{
-		Type: NodeMap,
-	}
+	rootval := &Map{}
 
 	knownkeys := make(map[string]Table)
 	knownkeyslocal := make(map[string]Table)
 
 	var currentPath []interface{}
 
-	rootprev := &rootval.Child
-	localprev := &rootval.Child
-	prev := &rootprev
+	rootEntries := &rootval.Entries
+	localEntries := &rootval.Entries
+	prev := &rootEntries
+
+	var trailingTokens []Token
 
 out:
 	for {
-		key := &Node{}
-		token, err := p.Next(&key.Tokens, TokenWhitespace, TokenNewline, TokenComment)
-		if err != nil {
-			return nil, err
-		}
+		var keyTokens []Token
+		token := p.Next(&keyTokens, TokenWhitespace, TokenNewline, TokenComment)
 
 		delim := TokenEqual
 		switch toktype := token.Type; toktype {
 		case TokenLSquare, TokenDoubleLSquare:
-			key.Tokens = append(key.Tokens, token)
-			token, err = p.Next(&key.Tokens, TokenWhitespace)
-			if err != nil {
-				return nil, err
-			}
+			keyTokens = append(keyTokens, token)
+			token = p.Next(&keyTokens, TokenWhitespace)
 			delim = TokenRSquare
 			if toktype == TokenDoubleLSquare {
 				delim = TokenDoubleRSquare
 			}
 		case TokenEOF:
-			// Attach any trailing tokens (typically whitespace and comments) to the root value
-			rootval.Suffix = append(rootval.Suffix, key.Tokens...)
+			rootval.Suffix = append(rootval.Suffix, keyTokens...)
 			break out
 		}
 
-		err = p.Key(token, key, delim)
-		if err != nil {
-			return nil, err
-		}
-		key.Position = token.Start
+		p.back(token)
+		key := p.Key(keyTokens, delim)
 
-		kpath := key.Value.([]interface{})
+		kpath := key.Path
 		path := make([]interface{}, 0, len(kpath)*2+len(currentPath))
 
-		suffix := &key.Tokens
+		var suffix *[]Token
 
 		switch delim {
 		case TokenEqual:
@@ -178,7 +189,7 @@ out:
 				keydigest := digest(currentPath, path)
 				tbl := knownkeys[keydigest]
 				if tbl.explicit || tbl.inline {
-					return nil, p.Error(token, &DuplicateKeyError{Kind: tbl.kind, Prefix: currentPath, Path: path, Position: tbl.at})
+					p.fail(key.Base().Tokens[len(key.Base().Tokens)-1], &DuplicateKeyError{Kind: tbl.kind, Prefix: currentPath, Path: path, Position: tbl.at})
 				}
 				tbl = knownkeyslocal[keydigest]
 				tbl.at = key.Position
@@ -192,11 +203,11 @@ out:
 			keydigest := digest(currentPath, path)
 			tbl := knownkeys[keydigest]
 			if tbl.explicit {
-				return nil, p.Error(token, &DuplicateKeyError{Kind: tbl.kind, Prefix: currentPath, Path: path, Position: tbl.at})
+				p.fail(key.Base().Tokens[len(key.Base().Tokens)-1], &DuplicateKeyError{Kind: tbl.kind, Prefix: currentPath, Path: path, Position: tbl.at})
 			}
 			tbl = knownkeyslocal[keydigest]
 			if tbl.explicit {
-				return nil, p.Error(token, &DuplicateKeyError{Kind: tbl.kind, Prefix: currentPath, Path: path, Position: tbl.at})
+				p.fail(key.Base().Tokens[len(key.Base().Tokens)-1], &DuplicateKeyError{Kind: tbl.kind, Prefix: currentPath, Path: path, Position: tbl.at})
 			}
 			tbl.at = key.Position
 			tbl.explicit = true
@@ -204,21 +215,13 @@ out:
 			tbl.kind = "key"
 			knownkeyslocal[keydigest] = tbl
 
-			key.Value = path
+			key.Path = path
 
-			value := &Node{}
-			token, err = p.Next(&value.Tokens, TokenWhitespace)
-			if err != nil {
-				return nil, err
-			}
-			if err := p.Value(token, value); err != nil {
-				return nil, err
-			}
-			key.Child = value
-			suffix = &value.Suffix
+			value := p.Value()
+			suffix = &value.Base().Suffix
 
-			**prev = key
-			*prev = &key.Sibling
+			entry := &MapEntry{Key: key, Value: value}
+			*(*prev) = append(*(*prev), entry)
 
 		case TokenRSquare, TokenDoubleRSquare:
 			// [<key>] or [[<key>]]
@@ -230,9 +233,6 @@ out:
 				knownkeyslocal = make(map[string]Table)
 			}
 
-			// check that none of the newly defined keys in the path conflict
-			// with other top-level definitions, or redefine explicit keys
-
 			for i := 0; i < len(kpath)-1; i++ {
 				path = append(path, kpath[i])
 
@@ -243,7 +243,7 @@ out:
 					tbl.kind = "table"
 					knownkeys[keydigest] = tbl
 				} else if tbl.inline {
-					return nil, p.Error(token, &DuplicateKeyError{Kind: tbl.kind, Path: path, Position: tbl.at})
+					p.fail(key.Base().Tokens[len(key.Base().Tokens)-1], &DuplicateKeyError{Kind: tbl.kind, Path: path, Position: tbl.at})
 				}
 
 				if tbl.array {
@@ -257,18 +257,14 @@ out:
 
 			switch delim {
 			case TokenRSquare:
-				// [<key>]
-
 				if tbl.explicit {
-					return nil, p.Error(token, &DuplicateKeyError{Kind: tbl.kind, Path: path, Position: tbl.at})
+					p.fail(key.Base().Tokens[len(key.Base().Tokens)-1], &DuplicateKeyError{Kind: tbl.kind, Path: path, Position: tbl.at})
 				}
 				tbl.kind = "table"
 
 			case TokenDoubleRSquare:
-				// [[<key>]]
-
 				if ok && !tbl.array {
-					return nil, p.Error(token, &DuplicateKeyError{Kind: tbl.kind, Path: path, Position: tbl.at})
+					p.fail(key.Base().Tokens[len(key.Base().Tokens)-1], &DuplicateKeyError{Kind: tbl.kind, Path: path, Position: tbl.at})
 				}
 
 				if !tbl.explicit {
@@ -278,265 +274,235 @@ out:
 					tbl.idx++
 				}
 				path = append(path, tbl.idx)
-
 			}
 
 			tbl.at = key.Position
 			tbl.explicit = true
 			knownkeys[keydigest] = tbl
-			key.Value = path
+			key.Path = path
 
-			prev = &rootprev
-			**prev = key
-			*prev = &key.Sibling
+			prev = &rootEntries
+			table := &Map{}
+			entry := &MapEntry{Key: key, Value: table}
+			*(*prev) = append(*(*prev), entry)
 
-			table := &Node{Type: NodeMap}
-			key.Child = table
-			localprev = &table.Child
+			localEntries = &table.Entries
 			currentPath = path
-			prev = &localprev
+			prev = &localEntries
+
+			// Read end-of-line for the section header
+			var eolTokens []Token
+			eolToken := p.Next(&eolTokens, TokenWhitespace, TokenComment)
+			if eolToken.Type == TokenEOF {
+				trailingTokens = eolTokens
+				break out
+			}
+			if eolToken.Type != TokenNewline {
+				p.fail(eolToken, UnexpectedTokenError{TokenNewline, TokenEOF})
+			}
+			key.Suffix = append(key.Suffix, eolTokens...)
+			key.Suffix = append(key.Suffix, eolToken)
+			continue
 
 		default:
 			panic("unknown top-level key definition")
 		}
 
-		token, err = p.Next(suffix, TokenWhitespace, TokenComment)
-		if err != nil {
-			return nil, err
-		}
+		token = p.Next(suffix, TokenWhitespace, TokenComment)
 		if token.Type == TokenEOF {
+			trailingTokens = nil
 			break
 		}
 		if token.Type != TokenNewline {
-			return nil, p.Error(token, UnexpectedTokenError{TokenNewline, TokenEOF})
+			p.fail(token, UnexpectedTokenError{TokenNewline, TokenEOF})
 		}
 		*suffix = append(*suffix, token)
 	}
 
-	document.Child = &rootval
-	return &document, nil
+	if len(trailingTokens) > 0 {
+		rootval.Suffix = append(rootval.Suffix, trailingTokens...)
+	}
+
+	return &Document{Root: rootval}
 }
 
-func (p *parser) Key(token Token, key *Node, delim TokenType) error {
-	key.Type = NodeKeyPath
+// Key parses a dotted key. leading contains any tokens already consumed before
+// the first key component (e.g. leading whitespace, or the '[' of a section header).
+// The caller must have backed off the first content token before calling Key.
+func (p *parser) Key(leading []Token, delim TokenType) *KeyPath {
+	key := &KeyPath{Node: Node{Tokens: leading}}
+	token := p.Next(nil)
+	key.Position = token.Start
 
-	var path []interface{}
 	for {
 		switch token.Type {
 		case TokenIdentifier, TokenString:
 			key.Tokens = append(key.Tokens, token)
-			path = append(path, token.Value.(string))
+			key.Path = append(key.Path, token.Value.(string))
 
 		// Need to handle these as well since `true`, `false`, `1234`, `1.2`... are all
 		// contextually identifiers
 		case TokenNumber, TokenBool:
 			key.Tokens = append(key.Tokens, token)
 			for _, k := range strings.Split(token.Raw, ".") {
-				path = append(path, k)
+				key.Path = append(key.Path, k)
 			}
 		default:
-			return p.Error(token, UnexpectedTokenError{TokenIdentifier, TokenString})
+			p.fail(token, UnexpectedTokenError{TokenIdentifier, TokenString})
 		}
 
 		if strings.ContainsAny(token.Raw, "\r\n") {
-			return p.Error(token, fmt.Errorf("keys cannot be multiline strings"))
+			p.fail(token, fmt.Errorf("keys cannot be multiline strings"))
 		}
 
-		var err error
-		token, err = p.Next(&key.Tokens, TokenWhitespace)
-		if err != nil {
-			return err
-		}
+		token = p.Next(&key.Tokens, TokenWhitespace)
 		if token.Type == delim {
 			break
 		}
 		if token.Type != TokenDot {
-			return p.Error(token, UnexpectedTokenError{TokenDot, delim})
+			p.fail(token, UnexpectedTokenError{TokenDot, delim})
 		}
 		key.Tokens = append(key.Tokens, token)
-		token, err = p.Next(&key.Tokens, TokenWhitespace)
-		if err != nil {
-			return err
-		}
+		token = p.Next(&key.Tokens, TokenWhitespace)
 	}
 	key.Tokens = append(key.Tokens, token)
-	key.Value = path
-	return nil
+	return key
 }
 
-func (p *parser) Value(token Token, node *Node) error {
+func (p *parser) Value() Value {
+	var leading []Token
+	token := p.Next(&leading, TokenWhitespace)
 	switch token.Type {
 	case TokenLBrace:
-		if err := p.Object(token, node); err != nil {
-			return err
-		}
+		p.back(append(leading, token)...)
+		return p.Object()
 	case TokenDoubleLSquare:
 		// This pretty funny case happens in situations like a = [[]]
 		// and we have to split the token in two.
-		token.Type = TokenLSquare
-		token.Raw = "["
-		next := token
-
-		token.End.Column--
+		lsquare := token
+		lsquare.Type = TokenLSquare
+		lsquare.Raw = "["
+		next := lsquare
+		lsquare.End.Column--
 		next.Start.Column++
-		p.prev = &next
-		fallthrough
+		p.back(next)
+		p.back(append(leading, lsquare)...)
+		return p.List()
 	case TokenLSquare:
-		if err := p.List(token, node); err != nil {
-			return err
-		}
+		p.back(append(leading, token)...)
+		return p.List()
 	case TokenString:
-		node.Type = NodeString
-		node.Value = token.Value
-		node.Tokens = append(node.Tokens, token)
+		return &String{Node: Node{Tokens: append(leading, token), Position: token.Start}, Value: token.Value.(string)}
 	case TokenNumber:
-		node.Type = NodeNumber
-		node.Value = token.Value
-		node.Tokens = append(node.Tokens, token)
+		return &Number{Node: Node{Tokens: append(leading, token), Position: token.Start}, Value: token.Value}
 	case TokenBool:
-		node.Type = NodeBool
-		node.Value = token.Value
-		node.Tokens = append(node.Tokens, token)
+		return &Bool{Node: Node{Tokens: append(leading, token), Position: token.Start}, Value: token.Value.(bool)}
 	case TokenDateTime:
-		node.Type = NodeDateTime
-		node.Value = token.Value
-		node.Tokens = append(node.Tokens, token)
-	case TokenError:
-		return p.Error(token, nil)
+		return &DateTime{Node: Node{Tokens: append(leading, token), Position: token.Start}, Value: token.Value}
 	default:
-		return p.Error(token, ErrUnexpectedToken)
+		p.fail(token, ErrUnexpectedToken)
+		panic("unreachable")
 	}
-
-	return nil
 }
 
-func (p *parser) Object(token Token, node *Node) error {
-	node.Type = NodeMap
-	node.Tokens = append(node.Tokens, token)
-
+func (p *parser) Object() *Map {
+	node := &Map{}
 	allowed := []TokenType{TokenWhitespace, TokenComment}
 	seen := make(map[string]Cursor)
 
-	var err error
-	token, err = p.Next(&node.Tokens, allowed...)
-	if err != nil {
-		return err
+	open := p.Next(&node.Tokens, allowed...)
+	if open.Type != TokenLBrace {
+		p.fail(open, UnexpectedTokenError{TokenLBrace})
 	}
+	node.Tokens = append(node.Tokens, open)
+	node.Position = open.Start
 
-	key := new(Node)
-	prev := &node.Child
+	token := p.Next(&node.Tokens, allowed...)
 	for token.Type != TokenRBrace {
-		err := p.Key(token, key, TokenEqual)
-		if err != nil {
-			return err
-		}
-		key.Position = token.Start
+		p.back(token)
+		key := p.Key(nil, TokenEqual)
+		key.Position = key.Base().Tokens[0].Start
 
-		path := key.Value.([]interface{})
-		keydigest := digest(path)
+		keydigest := digest(key.Path)
 		if pos, dup := seen[keydigest]; dup {
-			return p.Error(token, &DuplicateKeyError{Kind: "key", Path: path, Position: pos})
+			p.fail(key.Base().Tokens[0], &DuplicateKeyError{Kind: "key", Path: key.Path, Position: pos})
 		}
 		seen[keydigest] = key.Position
 
-		*prev = key
-		prev = &key.Sibling
+		value := p.Value()
+		value.Base().Position = value.Base().Tokens[0].Start
 
-		value := &Node{}
-		key.Child = value
+		entry := &MapEntry{Key: key, Value: value}
+		node.Entries = append(node.Entries, entry)
 
-		token, err = p.Next(&value.Tokens, allowed...)
-		if err != nil {
-			return err
-		}
-		if err := p.Value(token, value); err != nil {
-			return err
-		}
-		value.Position = token.Start
-
-		token, err = p.Next(&value.Suffix, allowed...)
-		if err != nil {
-			return err
-		}
-
+		token = p.Next(&value.Base().Suffix, allowed...)
 		switch token.Type {
-		// A key-value pair is always terminated by , or }.
 		case TokenComma:
-			value.Suffix = append(value.Suffix, token)
-
-			key = new(Node)
-			token, err = p.Next(&key.Tokens, allowed...)
-			if err != nil {
-				return err
-			}
+			value.Base().Suffix = append(value.Base().Suffix, token)
+			token = p.Next(&value.Base().Suffix, allowed...)
 			if token.Type == TokenRBrace {
-				return p.Error(token, UnexpectedTokenError{TokenIdentifier})
+				p.fail(token, UnexpectedTokenError{TokenIdentifier})
 			}
 		case TokenRBrace:
 			// nothing to do, we'll break out of the loop
 		default:
-			return p.Error(token, UnexpectedTokenError{TokenComma, TokenRBrace})
+			p.fail(token, UnexpectedTokenError{TokenComma, TokenRBrace})
 		}
 	}
 
 	node.Suffix = append(node.Suffix, token)
-	return nil
+	return node
 }
 
-func (p *parser) List(token Token, node *Node) error {
-	node.Type = NodeList
-	node.Tokens = append(node.Tokens, token)
-
+func (p *parser) List() *List {
+	node := &List{}
 	allowed := []TokenType{TokenWhitespace, TokenNewline, TokenComment}
+
+	open := p.Next(&node.Tokens, allowed...)
+	if open.Type != TokenLSquare {
+		p.fail(open, UnexpectedTokenError{TokenLSquare})
+	}
+	node.Tokens = append(node.Tokens, open)
+	node.Position = open.Start
 
 	fixup := func(token *Token) {
 		if token.Type != TokenDoubleRSquare {
 			return
 		}
-
 		// We also have to fixup double square brackets here
 		token.Type = TokenRSquare
 		token.Raw = "]"
 		next := *token
-
 		token.End.Column--
 		next.Start.Column++
-		p.prev = &next
+		p.back(next)
 	}
 
-	var err error
-	token, err = p.Next(&node.Tokens, allowed...)
-	if err != nil {
-		return err
-	}
+	token := p.Next(&node.Tokens, allowed...)
 	fixup(&token)
-	last := node
-	prev := &node.Child
 	for token.Type != TokenRSquare {
-		entry := &Node{}
-		if err := p.Value(token, entry); err != nil {
-			return err
-		}
-		entry.Position = token.Start
-		*prev = entry
-		prev = &entry.Sibling
+		p.back(token)
+		entry := p.Value()
+		entry.Base().Position = entry.Base().Tokens[0].Start
+		node.Items = append(node.Items, entry)
 
-		token, err = p.Next(&entry.Suffix, allowed...)
-		if err != nil {
-			return err
-		}
+		token = p.Next(&entry.Base().Suffix, allowed...)
 		fixup(&token)
 		if token.Type == TokenComma {
-			entry.Suffix = append(entry.Suffix, token)
-			token, err = p.Next(&entry.Suffix, allowed...)
-			if err != nil {
-				return err
-			}
+			entry.Base().Suffix = append(entry.Base().Suffix, token)
+			token = p.Next(&entry.Base().Suffix, allowed...)
+			fixup(&token)
 		} else if token.Type != TokenRSquare {
-			return p.Error(token, UnexpectedTokenError{TokenRSquare})
+			p.fail(token, UnexpectedTokenError{TokenRSquare})
 		}
-		last = entry
 	}
-	last.Suffix = append(last.Suffix, token)
-	return nil
+
+	// Closing bracket goes into last item suffix or list suffix if empty.
+	if len(node.Items) > 0 {
+		last := node.Items[len(node.Items)-1]
+		last.Base().Suffix = append(last.Base().Suffix, token)
+	} else {
+		node.Suffix = append(node.Suffix, token)
+	}
+	return node
 }

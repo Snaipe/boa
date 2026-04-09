@@ -23,14 +23,15 @@ type unmarshaler struct {
 	structTagParser
 }
 
-func (unmarshaler) UnmarshalValue(val reflect.Value, node *Node) (bool, error) {
+func (unmarshaler) UnmarshalValue(val reflect.Value, node Value) (bool, error) {
 	if !val.CanAddr() {
 		return false, nil
 	}
 	switch unmarshaler := val.Addr().Interface().(type) {
 	case json.Unmarshaler:
-		trimmed := node.Trim(punctAndWhitespace...)
-		data, err := MarshalJSON(&trimmed)
+		trimmed := TrimValue(node, punctAndWhitespace...)
+		doc := &Document{Root: trimmed}
+		data, err := MarshalJSON(doc)
 		if err != nil {
 			return false, err
 		}

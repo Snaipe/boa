@@ -15,8 +15,8 @@ import (
 )
 
 type parser struct {
-	lexer   *Lexer
-	current *Node
+	lexer *Lexer
+	prev  []Token
 }
 
 func newParser(in io.Reader) Parser {
@@ -28,182 +28,201 @@ func newParser(in io.Reader) Parser {
 
 func (p *parser) Next(tokens *[]Token) (token Token) {
 	for {
-		token = p.lexer.Next()
+		if len(p.prev) > 0 {
+			last := len(p.prev) - 1
+			token, p.prev = p.prev[last], p.prev[:last]
+		} else {
+			token = p.lexer.Next()
+		}
 		switch token.Type {
 		case TokenComment, TokenInlineComment, TokenNewline, TokenWhitespace:
-			*tokens = append(*tokens, token)
+			if tokens != nil {
+				*tokens = append(*tokens, token)
+			}
 		default:
 			return token
 		}
 	}
 }
 
-func (p *parser) Error(token Token, err error) error {
+func (p *parser) back(tokens ...Token) {
+	for i := len(tokens) - 1; i >= 0; i-- {
+		p.prev = append(p.prev, tokens[i])
+	}
+}
+
+func (p *parser) fail(token Token, err error) {
 	if token.Type == TokenError {
-		return token.Value.(error)
+		panic(token.Value.(error))
 	}
 	err = TokenTypeError{Token: token, Err: err}
-	err = &Error{Cursor: token.Start, Err: err}
-	return err
+	panic(&Error{Cursor: token.Start, Err: err})
 }
 
-func (p *parser) Parse() (*Node, error) {
-	var node Node
-	node.Type = NodeDocument
-
-	var rootval Node
-	node.Child = &rootval
-
-	token := p.Next(&rootval.Tokens)
-	if token.Type == TokenError {
-		return nil, p.Error(token, nil)
+func (p *parser) accept(tokens *[]Token, expect ...TokenType) Token {
+	tok := p.Next(tokens)
+	for _, typ := range expect {
+		if tok.Type == typ {
+			if tokens != nil {
+				*tokens = append(*tokens, tok)
+			}
+			return tok
+		}
 	}
-	if err := p.Value(token, &rootval); err != nil {
-		return nil, err
-	}
-	rootval.Position = token.Start
-	token = p.Next(&rootval.Suffix)
-	if token.Type != TokenEOF {
-		return nil, p.Error(token, UnexpectedTokenError{TokenEOF})
-	}
-
-	return &node, nil
+	p.fail(tok, UnexpectedTokenError(expect))
+	panic("unreachable")
 }
 
-func (p *parser) Value(token Token, node *Node) error {
+func (p *parser) Parse() (doc *Document, err error) {
+	defer func() {
+		if e := recover(); e != nil {
+			if ee, ok := e.(*Error); ok {
+				err = ee
+			} else if ee, ok := e.(error); ok {
+				err = ee
+			} else {
+				panic(e)
+			}
+		}
+	}()
+	return p.document(), nil
+}
+
+func (p *parser) document() *Document {
+	doc := &Document{}
+	doc.Root = p.value()
+
+	tok := p.Next(&doc.Root.Base().Suffix)
+	if tok.Type != TokenEOF {
+		p.fail(tok, UnexpectedTokenError{TokenEOF})
+	}
+	return doc
+}
+
+func (p *parser) value() Value {
+	var leading []Token
+	token := p.Next(&leading)
 	switch token.Type {
 	case TokenLBrace:
-		if err := p.Object(token, node); err != nil {
-			return err
-		}
+		p.back(append(leading, token)...)
+		return p.object()
 	case TokenLSquare:
-		if err := p.List(token, node); err != nil {
-			return err
-		}
+		p.back(append(leading, token)...)
+		return p.list()
 	case TokenString:
-		node.Type = NodeString
-		node.Value = token.Value
-		node.Tokens = append(node.Tokens, token)
+		return &String{Node: Node{Tokens: append(leading, token), Position: token.Start}, Value: token.Value.(string)}
 	case TokenNumber:
-		node.Type = NodeNumber
-		node.Value = token.Value
-		node.Tokens = append(node.Tokens, token)
+		return &Number{Node: Node{Tokens: append(leading, token), Position: token.Start}, Value: token.Value}
 	case TokenBool:
-		node.Type = NodeBool
-		node.Value = token.Value
-		node.Tokens = append(node.Tokens, token)
+		return &Bool{Node: Node{Tokens: append(leading, token), Position: token.Start}, Value: token.Value.(bool)}
 	case TokenNil:
-		node.Type = NodeNil
-		node.Tokens = append(node.Tokens, token)
+		return &Nil{Node: Node{Tokens: append(leading, token), Position: token.Start}}
 	case TokenMinus, TokenPlus:
-		node.Type = NodeNumber
-		node.Tokens = append(node.Tokens, token)
-		next := p.Next(&node.Tokens)
-		switch next.Type {
-		case TokenError:
-			return p.Error(next, nil)
-		case TokenNumber:
-			break
-		default:
-			return p.Error(next, ErrUnexpectedToken)
+		tokens := append(leading, token)
+		next := p.Next(&tokens)
+		if next.Type != TokenNumber {
+			p.fail(next, UnexpectedTokenError{TokenNumber})
 		}
+		var val interface{}
 		if token.Type == TokenMinus {
 			switch constv := next.Value.(type) {
 			case constant.Value:
-				node.Value = constant.UnaryOp(gotokens.SUB, constv, 0)
+				val = constant.UnaryOp(gotokens.SUB, constv, 0)
 			case float64:
-				node.Value = -constv
+				val = -constv
 			default:
 				panic(fmt.Sprintf("unsupported type %T for number node", constv))
 			}
 		} else {
-			node.Value = next.Value
+			val = next.Value
 		}
-		node.Tokens = append(node.Tokens, next)
-	case TokenError:
-		return p.Error(token, nil)
+		return &Number{Node: Node{Tokens: append(tokens, next), Position: token.Start}, Value: val}
 	default:
-		return p.Error(token, ErrUnexpectedToken)
+		p.fail(token, ErrUnexpectedToken)
+		panic("unreachable")
 	}
-
-	return nil
 }
 
-func (p *parser) Object(token Token, node *Node) error {
-	node.Type = NodeMap
-	node.Tokens = append(node.Tokens, token)
+func (p *parser) key() Value {
+	var leading []Token
+	token := p.Next(&leading)
+	switch token.Type {
+	case TokenIdentifier, TokenString:
+	default:
+		p.fail(token, UnexpectedTokenError{TokenString, TokenIdentifier})
+	}
+	key := &String{
+		Node: Node{
+			Tokens:   append(leading, token),
+			Position: token.Start,
+		},
+		Value: token.Value.(string),
+	}
+	p.accept(&key.Tokens, TokenColon)
+	return key
+}
 
-	token = p.Next(&node.Tokens)
-	prev := &node.Child
-	last := node
+func (p *parser) object() *Map {
+	node := &Map{}
+	open := p.accept(&node.Tokens, TokenLBrace)
+	node.Position = open.Start
+
+	token := p.Next(&node.Tokens)
 	for token.Type != TokenRBrace {
-		key := new(Node)
+		p.back(token)
+		key := p.key()
+		value := p.value()
 
-		switch token.Type {
-		case TokenIdentifier, TokenString:
-			key.Value = token.Value
-		default:
-			return p.Error(token, UnexpectedTokenError{TokenString, TokenIdentifier})
-		}
-		key.Type = NodeString
-		key.Tokens = append(key.Tokens, token)
-		key.Position = token.Start
-		*prev = key
-		prev = &key.Sibling
+		entry := &MapEntry{Key: key, Value: value}
+		node.Entries = append(node.Entries, entry)
 
-		token = p.Next(&key.Tokens)
-		if token.Type != TokenColon {
-			return p.Error(token, UnexpectedTokenError{TokenColon})
-		}
-		key.Tokens = append(key.Tokens, token)
-
-		value := &Node{}
-		key.Child = value
-
-		token = p.Next(&value.Tokens)
-		if err := p.Value(token, value); err != nil {
-			return err
-		}
-		value.Position = token.Start
-
-		token = p.Next(&value.Suffix)
+		token = p.Next(&value.Base().Suffix)
 		if token.Type == TokenComma {
-			value.Suffix = append(value.Suffix, token)
-			token = p.Next(&value.Suffix)
+			value.Base().Suffix = append(value.Base().Suffix, token)
+			token = p.Next(&value.Base().Suffix)
 		} else if token.Type != TokenRBrace {
-			return p.Error(token, UnexpectedTokenError{TokenRBrace})
+			p.fail(token, UnexpectedTokenError{TokenRBrace})
 		}
-		last = value
 	}
-	last.Suffix = append(last.Suffix, token)
-	return nil
+
+	// Closing brace goes into the last entry's value suffix, or the map's
+	// own suffix if empty.
+	if len(node.Entries) > 0 {
+		last := node.Entries[len(node.Entries)-1]
+		last.Value.Base().Suffix = append(last.Value.Base().Suffix, token)
+	} else {
+		node.Suffix = append(node.Suffix, token)
+	}
+	return node
 }
 
-func (p *parser) List(token Token, node *Node) error {
-	node.Type = NodeList
-	node.Tokens = append(node.Tokens, token)
+func (p *parser) list() *List {
+	node := &List{}
+	open := p.accept(&node.Tokens, TokenLSquare)
+	node.Position = open.Start
 
-	token = p.Next(&node.Tokens)
-	last := node
-	prev := &node.Child
+	token := p.Next(&node.Tokens)
 	for token.Type != TokenRSquare {
-		entry := &Node{}
-		if err := p.Value(token, entry); err != nil {
-			return err
-		}
-		entry.Position = token.Start
-		*prev = entry
-		prev = &entry.Sibling
+		p.back(token)
+		entry := p.value()
+		node.Items = append(node.Items, entry)
 
-		token = p.Next(&entry.Suffix)
+		token = p.Next(&entry.Base().Suffix)
 		if token.Type == TokenComma {
-			entry.Suffix = append(entry.Suffix, token)
-			token = p.Next(&entry.Suffix)
+			entry.Base().Suffix = append(entry.Base().Suffix, token)
+			token = p.Next(&entry.Base().Suffix)
 		} else if token.Type != TokenRSquare {
-			return p.Error(token, UnexpectedTokenError{TokenRSquare})
+			p.fail(token, UnexpectedTokenError{TokenRSquare})
 		}
-		last = entry
 	}
-	last.Suffix = append(last.Suffix, token)
-	return nil
+
+	// Closing bracket goes into the last item's suffix, or the list's
+	// own suffix if empty.
+	if len(node.Items) > 0 {
+		last := node.Items[len(node.Items)-1]
+		last.Base().Suffix = append(last.Base().Suffix, token)
+	} else {
+		node.Suffix = append(node.Suffix, token)
+	}
+	return node
 }

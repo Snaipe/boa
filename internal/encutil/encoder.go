@@ -34,8 +34,8 @@ type MarshalerBase struct {
 }
 
 func (m *MarshalerBase) Encode(v interface{}) error {
-	if node, ok := v.(*syntax.Node); ok {
-		return node.Marshal(m.Self)
+	if node, ok := v.(*syntax.Document); ok {
+		return syntax.MarshalDocument(node, m.Self)
 	}
 	return reflectutil.Marshal(reflect.ValueOf(v), m.Self, m.NamingConvention)
 }

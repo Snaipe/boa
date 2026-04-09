@@ -20,17 +20,17 @@ import (
 )
 
 type Unmarshaler interface {
-	UnmarshalValue(val reflect.Value, node *syntax.Node) (bool, error)
+	UnmarshalValue(val reflect.Value, node syntax.Value) (bool, error)
 }
 
-type UnmarshalFunc func(val reflect.Value, node *syntax.Node) (bool, error)
+type UnmarshalFunc func(val reflect.Value, node syntax.Value) (bool, error)
 
-func Unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingConvention, merge bool, unmarshaler Unmarshaler) error {
+func Unmarshal(val reflect.Value, node syntax.Value, convention encoding.NamingConvention, merge bool, unmarshaler Unmarshaler) error {
 	_, err := unmarshal(val, node, convention, nil, merge, unmarshaler)
 	return err
 }
 
-func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingConvention, path []string, merge bool, unmarshaler Unmarshaler) (reflect.Value, error) {
+func unmarshal(val reflect.Value, node syntax.Value, convention encoding.NamingConvention, path []string, merge bool, unmarshaler Unmarshaler) (reflect.Value, error) {
 	typ := val.Type()
 
 	target := func() string {
@@ -44,24 +44,30 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 		if err == nil {
 			return nil
 		}
-		return &encoding.LoadError{Cursor: node.Position, Target: target(), Err: err}
+		return &encoding.LoadError{Cursor: node.Base().Position, Target: target(), Err: err}
 	}
 
-	newNodeErr := func(exp syntax.NodeType) error {
-		return newErr(fmt.Errorf("config has %v, but expected %v instead", node.Type, exp))
+	newNodeErr := func(exp string) error {
+		return newErr(fmt.Errorf("config has %T, but expected %v instead", node, exp))
 	}
 
-	toValue := func(node *syntax.Node, path []string) (reflect.Value, error) {
+	toValue := func(node syntax.Value, path []string) (reflect.Value, error) {
 		var (
 			rval    reflect.Value
 			recurse bool
 		)
-		switch node.Type {
-		case syntax.NodeBool, syntax.NodeString, syntax.NodeNil:
-			out := node.Value.(bool)
+		switch n := node.(type) {
+		case *syntax.Bool:
+			out := n.Value
 			rval = reflect.ValueOf(&out).Elem()
-		case syntax.NodeNumber:
-			switch out := node.Value.(type) {
+		case *syntax.String:
+			out := n.Value
+			rval = reflect.ValueOf(&out).Elem()
+		case *syntax.Nil:
+			var out interface{}
+			rval = reflect.ValueOf(&out).Elem()
+		case *syntax.Number:
+			switch out := n.Value.(type) {
 			case constant.Value:
 				rval = reflect.ValueOf(&out).Elem()
 			case float64: // for infinities
@@ -69,19 +75,16 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 			default:
 				panic(fmt.Sprintf("unsupported node value %T for number node", out))
 			}
-		case syntax.NodeDateTime:
-			out := node.Value
-			rval = reflect.ValueOf(&out).Elem().Elem()
-		case syntax.NodeMap:
+		case *syntax.Map:
 			var out map[interface{}]interface{}
 			rval = reflect.ValueOf(&out).Elem()
 			recurse = true
-		case syntax.NodeList:
+		case *syntax.List:
 			var out []interface{}
 			rval = reflect.ValueOf(&out).Elem()
 			recurse = true
 		default:
-			return rval, fmt.Errorf("unsupported node type %v", node.Type)
+			return rval, fmt.Errorf("unsupported node type %T", node)
 		}
 
 		if recurse {
@@ -99,14 +102,14 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 		}
 	}
 
-	if scalar, err := SetScalar(val, node.Value, node.Type); scalar {
+	if scalar, err := SetScalar(val, node); scalar {
 		return val, err
 	}
 
 	switch kind := val.Kind(); kind {
 
 	case reflect.Pointer:
-		if node.Type == syntax.NodeNil {
+		if _, ok := node.(*syntax.Nil); ok {
 			// We have an explicit nil, therefore we must set the pointer to nil.
 			val.Set(reflect.Zero(typ))
 		} else {
@@ -119,58 +122,54 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 		}
 
 	case reflect.Array, reflect.Slice:
-		if node.Type == syntax.NodeNil {
+		if _, ok := node.(*syntax.Nil); ok {
 			val.Set(reflect.Zero(typ))
 			return val, nil
 		}
-		if node.Type != syntax.NodeList {
-			return val, newNodeErr(syntax.NodeList)
+		list, ok := node.(*syntax.List)
+		if !ok {
+			return val, newNodeErr("list")
 		}
 		if kind == reflect.Slice {
-			var l int
-			for n := node.Child; n != nil; n = n.Sibling {
-				l++
-			}
+			l := len(list.Items)
 			if val.Len() != l {
 				val.Set(reflect.MakeSlice(typ, l, l))
 			}
 		}
-		var idx int
-		for n := node.Child; n != nil; n = n.Sibling {
+		for idx, item := range list.Items {
 			if idx >= val.Len() && kind == reflect.Array {
-				return val, newErr(fmt.Errorf("cannot assign %v to index %d: index out of bounds", node.Value, idx))
+				return val, newErr(fmt.Errorf("cannot assign value to index %d: index out of bounds", idx))
 			}
-			if _, err := unmarshal(val.Index(idx), n, convention, append(path, fmt.Sprintf("[%d]", idx)), merge, unmarshaler); err != nil {
+			if _, err := unmarshal(val.Index(idx), item, convention, append(path, fmt.Sprintf("[%d]", idx)), merge, unmarshaler); err != nil {
 				return val, err
 			}
-			idx++
 		}
 
 	case reflect.Map:
-		if node.Type == syntax.NodeNil {
+		if _, ok := node.(*syntax.Nil); ok {
 			val.Set(reflect.Zero(typ))
 			return val, nil
 		}
-		if node.Type != syntax.NodeMap {
-			return val, newNodeErr(syntax.NodeMap)
+		mapNode, ok := node.(*syntax.Map)
+		if !ok {
+			return val, newNodeErr("map")
 		}
 		if val.IsNil() || !merge {
 			val.Set(reflect.MakeMap(typ))
 		}
-		for key := node.Child; key != nil; key = key.Sibling {
-			value := key.Child
-
-			if key.Type == syntax.NodeKeyPath {
-				at := key.Value.([]interface{})
+		for _, entry := range mapNode.Entries {
+			switch key := entry.Key.(type) {
+			case syntax.KeyPather:
+				at := key.KeyPathComponents()
 				p := path
 				for _, e := range at {
 					p = append(p, fmt.Sprintf("[%v]", e))
 				}
-				if err := Set(val, value, convention, unmarshaler, at...); err != nil {
+				if err := Set(val, entry.Value, convention, unmarshaler, at...); err != nil {
 					return val, err
 				}
-			} else {
-				rkey, err := unmarshal(reflect.New(typ.Key()).Elem(), key, convention, path, merge, unmarshaler)
+			default:
+				rkey, err := unmarshal(reflect.New(typ.Key()).Elem(), entry.Key, convention, path, merge, unmarshaler)
 				if err != nil {
 					return val, err
 				}
@@ -182,7 +181,7 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 				}
 				set := !mval.IsValid()
 
-				rval, err = unmarshal(rval, value, convention, append(path, fmt.Sprintf("[%v]", rkey.Interface())), merge, unmarshaler)
+				rval, err = unmarshal(rval, entry.Value, convention, append(path, fmt.Sprintf("[%v]", rkey.Interface())), merge, unmarshaler)
 				if err != nil {
 					return val, err
 				}
@@ -194,9 +193,9 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 		}
 
 	case reflect.Struct:
-
-		if node.Type != syntax.NodeMap {
-			return val, newNodeErr(syntax.NodeMap)
+		mapNode, ok := node.(*syntax.Map)
+		if !ok {
+			return val, newNodeErr("map")
 		}
 		if !merge {
 			val.Set(reflect.Zero(typ))
@@ -204,41 +203,51 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 
 		_, fields := VisibleFields(val, convention, unmarshaler)
 
-		for key := node.Child; key != nil; key = key.Sibling {
-			value := key.Child
-
-			var fieldname string
-			switch key.Type {
-			case syntax.NodeString:
-				fieldname = key.Value.(string)
-			case syntax.NodeBool:
-				if key.Value.(bool) {
+		for _, entry := range mapNode.Entries {
+			switch key := entry.Key.(type) {
+			case syntax.KeyPather:
+				at := key.KeyPathComponents()
+				for _, e := range at {
+					path = append(path, fmt.Sprintf("[%v]", e))
+				}
+				if err := Set(val, entry.Value, convention, unmarshaler, at...); err != nil {
+					return val, err
+				}
+			case *syntax.String:
+				field, ok := fields[key.Value]
+				if !ok {
+					continue
+				}
+				_, err := unmarshal(field.Value, entry.Value, field.Options.Naming, append(path, fmt.Sprintf(".%v", field.Name)), merge, unmarshaler)
+				if err != nil {
+					return val, err
+				}
+			case *syntax.Bool:
+				var fieldname string
+				if key.Value {
 					fieldname = "true"
 				} else {
 					fieldname = "false"
 				}
-			case syntax.NodeNil:
-				fieldname = "null"
-			case syntax.NodeKeyPath:
-				at := key.Value.([]interface{})
-				for _, e := range at {
-					path = append(path, fmt.Sprintf("[%v]", e))
+				field, ok := fields[fieldname]
+				if !ok {
+					continue
 				}
-				if err := Set(val, value, convention, unmarshaler, at...); err != nil {
+				_, err := unmarshal(field.Value, entry.Value, field.Options.Naming, append(path, fmt.Sprintf(".%v", field.Name)), merge, unmarshaler)
+				if err != nil {
 					return val, err
 				}
-				continue
+			case *syntax.Nil:
+				field, ok := fields["null"]
+				if !ok {
+					continue
+				}
+				_, err := unmarshal(field.Value, entry.Value, field.Options.Naming, append(path, fmt.Sprintf(".%v", field.Name)), merge, unmarshaler)
+				if err != nil {
+					return val, err
+				}
 			default:
-				return val, fmt.Errorf("unsupported node type %v", node.Type)
-			}
-
-			field, ok := fields[fieldname]
-			if !ok {
-				continue
-			}
-			_, err := unmarshal(field.Value, value, field.Options.Naming, append(path, fmt.Sprintf(".%v", field.Name)), merge, unmarshaler)
-			if err != nil {
-				return val, err
+				return val, fmt.Errorf("unsupported key type %T", entry.Key)
 			}
 		}
 
@@ -256,7 +265,7 @@ func unmarshal(val reflect.Value, node *syntax.Node, convention encoding.NamingC
 		}
 
 	default:
-		return val, fmt.Errorf("cannot assign %v to %v: unsupported type", node.Value, typ)
+		return val, fmt.Errorf("cannot assign %T to %v: unsupported type", node, typ)
 	}
 
 	return val, nil
@@ -287,7 +296,7 @@ func (e *pathError) Unwrap() error {
 	return e.Err
 }
 
-func Set(val reflect.Value, node *syntax.Node, convention encoding.NamingConvention, unmarshaler Unmarshaler, at ...interface{}) (outerr error) {
+func Set(val reflect.Value, node syntax.Value, convention encoding.NamingConvention, unmarshaler Unmarshaler, at ...interface{}) (outerr error) {
 	if !val.IsValid() {
 		panic("cannot call Set with invalid value")
 	}
@@ -408,20 +417,48 @@ func Set(val reflect.Value, node *syntax.Node, convention encoding.NamingConvent
 	}
 }
 
-func SetScalar(to reflect.Value, value interface{}, nodetype syntax.NodeType) (bool, error) {
+func SetScalar(to reflect.Value, node syntax.Value) (bool, error) {
+	const (
+		nodetypeString = "string"
+		nodetypeNumber = "number"
+		nodetypeBool   = "bool"
+		nodetypeNil    = "nil"
+	)
+
 	if !to.IsValid() {
 		return false, fmt.Errorf("invalid value is not a scalar")
 	}
 
-	newNodeErr := func(exp syntax.NodeType) error {
+	var (
+		value    interface{}
+		nodetype string
+	)
+	switch n := node.(type) {
+	case *syntax.String:
+		value = n.Value
+		nodetype = nodetypeString
+	case *syntax.Number:
+		value = n.Value
+		nodetype = nodetypeNumber
+	case *syntax.Bool:
+		value = n.Value
+		nodetype = nodetypeBool
+	case *syntax.Nil:
+		value = nil
+		nodetype = nodetypeNil
+	default:
+		return false, nil
+	}
+
+	newNodeErr := func(exp string) error {
 		return fmt.Errorf("config has %v, but expected %v instead", nodetype, exp)
 	}
 
 	if to.CanAddr() {
 		switch ptr := to.Addr().Interface().(type) {
 		case *big.Float:
-			if nodetype != syntax.NodeNumber {
-				return true, newNodeErr(syntax.NodeNumber)
+			if nodetype != nodetypeNumber {
+				return true, newNodeErr(nodetypeNumber)
 			}
 			switch constv := value.(type) {
 			case constant.Value:
@@ -444,8 +481,8 @@ func SetScalar(to reflect.Value, value interface{}, nodetype syntax.NodeType) (b
 			}
 			return true, nil
 		case *big.Rat:
-			if nodetype != syntax.NodeNumber {
-				return true, newNodeErr(syntax.NodeNumber)
+			if nodetype != nodetypeNumber {
+				return true, newNodeErr(nodetypeNumber)
 			}
 			switch constv := value.(type) {
 			case constant.Value:
@@ -466,8 +503,8 @@ func SetScalar(to reflect.Value, value interface{}, nodetype syntax.NodeType) (b
 			}
 			return true, nil
 		case *big.Int:
-			if nodetype != syntax.NodeNumber {
-				return true, newNodeErr(syntax.NodeNumber)
+			if nodetype != nodetypeNumber {
+				return true, newNodeErr(nodetypeNumber)
 			}
 			switch constv := value.(type) {
 			case constant.Value:
@@ -488,30 +525,30 @@ func SetScalar(to reflect.Value, value interface{}, nodetype syntax.NodeType) (b
 			}
 			return true, nil
 		case stdenc.TextUnmarshaler:
-			if nodetype != syntax.NodeString {
-				return true, newNodeErr(syntax.NodeString)
+			if nodetype != nodetypeString {
+				return true, newNodeErr(nodetypeString)
 			}
 			if err := ptr.UnmarshalText([]byte(value.(string))); err != nil {
 				return true, err
 			}
 			return true, nil
 		case *[]byte:
-			if nodetype != syntax.NodeString {
-				return true, newNodeErr(syntax.NodeString)
+			if nodetype != nodetypeString {
+				return true, newNodeErr(nodetypeString)
 			}
 			to.Set(reflect.ValueOf([]byte(value.(string))))
 			return true, nil
 		case *url.URL:
-			if nodetype != syntax.NodeString {
-				return true, newNodeErr(syntax.NodeString)
+			if nodetype != nodetypeString {
+				return true, newNodeErr(nodetypeString)
 			}
 			if err := ptr.UnmarshalBinary([]byte(value.(string))); err != nil {
 				return true, err
 			}
 			return true, nil
 		case *regexp.Regexp:
-			if nodetype != syntax.NodeString {
-				return true, newNodeErr(syntax.NodeString)
+			if nodetype != nodetypeString {
+				return true, newNodeErr(nodetypeString)
 			}
 			re, err := regexp.Compile(value.(string))
 			if err != nil {
@@ -527,7 +564,7 @@ func SetScalar(to reflect.Value, value interface{}, nodetype syntax.NodeType) (b
 		if value != nil {
 			to.Set(ToScalar(reflect.ValueOf(value)))
 			return true, nil
-		} else if nodetype == syntax.NodeNil {
+		} else if nodetype == nodetypeNil {
 			to.Set(reflect.Zero(to.Type()))
 			return true, nil
 		}
@@ -536,15 +573,15 @@ func SetScalar(to reflect.Value, value interface{}, nodetype syntax.NodeType) (b
 	switch kind := to.Kind(); kind {
 
 	case reflect.Bool:
-		if nodetype != syntax.NodeBool {
-			return true, newNodeErr(syntax.NodeBool)
+		if nodetype != nodetypeBool {
+			return true, newNodeErr(nodetypeBool)
 		}
 		to.SetBool(value.(bool))
 		return true, nil
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		if nodetype != syntax.NodeNumber {
-			return true, newNodeErr(syntax.NodeNumber)
+		if nodetype != nodetypeNumber {
+			return true, newNodeErr(nodetypeNumber)
 		}
 		i, exact := constant.Int64Val(value.(constant.Value))
 		if !exact {
@@ -554,8 +591,8 @@ func SetScalar(to reflect.Value, value interface{}, nodetype syntax.NodeType) (b
 		return true, nil
 
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		if nodetype != syntax.NodeNumber {
-			return true, newNodeErr(syntax.NodeNumber)
+		if nodetype != nodetypeNumber {
+			return true, newNodeErr(nodetypeNumber)
 		}
 		i, exact := constant.Uint64Val(value.(constant.Value))
 		if !exact {
@@ -565,8 +602,8 @@ func SetScalar(to reflect.Value, value interface{}, nodetype syntax.NodeType) (b
 		return true, nil
 
 	case reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128:
-		if nodetype != syntax.NodeNumber {
-			return true, newNodeErr(syntax.NodeNumber)
+		if nodetype != nodetypeNumber {
+			return true, newNodeErr(nodetypeNumber)
 		}
 		switch constv := value.(type) {
 		case constant.Value:
@@ -588,8 +625,8 @@ func SetScalar(to reflect.Value, value interface{}, nodetype syntax.NodeType) (b
 		return true, nil
 
 	case reflect.String:
-		if nodetype != syntax.NodeString {
-			return true, newNodeErr(syntax.NodeString)
+		if nodetype != nodetypeString {
+			return true, newNodeErr(nodetypeString)
 		}
 		to.SetString(value.(string))
 		return true, nil

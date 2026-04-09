@@ -12,7 +12,7 @@ import (
 	"reflect"
 	"time"
 
-	. "snai.pe/boa/syntax"
+	"snai.pe/boa/syntax"
 
 	"snai.pe/boa/encoding"
 	"snai.pe/boa/internal/encutil"
@@ -24,28 +24,23 @@ type unmarshaler struct {
 	structTagParser
 }
 
-func (unmarshaler) UnmarshalValue(val reflect.Value, node *Node) (bool, error) {
-	newNodeErr := func(exp NodeType) error {
-		return fmt.Errorf("config has %v, but expected %v instead", node.Type, exp)
+func (unmarshaler) UnmarshalValue(val reflect.Value, node syntax.Value) (bool, error) {
+	dt, ok := node.(*DateTime)
+	if !ok {
+		return false, nil
 	}
 
 	switch val.Interface().(type) {
 	case time.Time:
-		if node.Type != NodeDateTime {
-			return false, newNodeErr(NodeDateTime)
-		}
-		val.Set(reflect.ValueOf(toTime(node.Value)))
+		val.Set(reflect.ValueOf(toTime(dt.Value)))
 		return true, nil
 	case LocalDate, LocalTime, LocalDateTime:
-		if node.Type != NodeDateTime {
-			return false, newNodeErr(NodeDateTime)
-		}
-		rval := reflect.ValueOf(node.Value)
+		rval := reflect.ValueOf(dt.Value)
 		if rval.Type().AssignableTo(val.Type()) {
 			val.Set(rval)
 			return true, nil
 		}
-		if t, ok := node.Value.(time.Time); ok {
+		if t, ok := dt.Value.(time.Time); ok {
 			switch val.Interface().(type) {
 			case LocalDate:
 				val.Set(reflect.ValueOf(MakeLocalDate(t)))
@@ -56,6 +51,10 @@ func (unmarshaler) UnmarshalValue(val reflect.Value, node *Node) (bool, error) {
 			}
 			return true, nil
 		}
+	}
+	if val.Kind() == reflect.Interface {
+		val.Set(reflect.ValueOf(dt.Value))
+		return true, nil
 	}
 	return false, nil
 }

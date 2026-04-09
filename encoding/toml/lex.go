@@ -510,7 +510,7 @@ func (state *lexerState) lexNumberOrDateOrKey(l *Lexer) StateFunc {
 	case ndk[key] != "":
 		l.Emit(TokenIdentifier, ndk[key])
 	default:
-		panic("no groups matched but syntax.Regexp.Accept did not return an error")
+		panic("no groups matched but Regexp.Accept did not return an error")
 	}
 
 	return state.lex

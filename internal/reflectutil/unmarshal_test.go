@@ -17,9 +17,17 @@ import (
 )
 
 var (
-	testNode        *syntax.Node
-	testNodeKeypath *syntax.Node
+	testNode        syntax.Value
+	testNodeKeypath syntax.Value
 )
+
+// testKeyPath is a test-only implementation of syntax.KeyPather.
+type testKeyPath struct {
+	syntax.Node
+	path []interface{}
+}
+
+func (kp *testKeyPath) KeyPathComponents() []interface{} { return kp.path }
 
 type T struct {
 	Str        string
@@ -70,6 +78,54 @@ var expectedNest = T{
 
 var expected = expectedNest
 
+type nodespec struct {
+	key   string
+	value syntax.Value
+}
+
+func makeNodes() []nodespec {
+	return []nodespec{
+		{"str", &syntax.String{Value: "string"}},
+		{"bytes", &syntax.String{Value: "string"}},
+		{"int", &syntax.Number{Value: constant.MakeInt64(1)}},
+		{"int8", &syntax.Number{Value: constant.MakeInt64(1)}},
+		{"int16", &syntax.Number{Value: constant.MakeInt64(1)}},
+		{"int32", &syntax.Number{Value: constant.MakeInt64(1)}},
+		{"int64", &syntax.Number{Value: constant.MakeInt64(1)}},
+		{"uint", &syntax.Number{Value: constant.MakeUint64(1)}},
+		{"uint8", &syntax.Number{Value: constant.MakeUint64(1)}},
+		{"uint16", &syntax.Number{Value: constant.MakeUint64(1)}},
+		{"uint32", &syntax.Number{Value: constant.MakeUint64(1)}},
+		{"uint64", &syntax.Number{Value: constant.MakeUint64(1)}},
+		{"uintptr", &syntax.Number{Value: constant.MakeUint64(1)}},
+		{"float32", &syntax.Number{Value: constant.MakeFloat64(1)}},
+		{"float64", &syntax.Number{Value: constant.MakeFloat64(1)}},
+		{"complex64", &syntax.Number{Value: constant.MakeFloat64(1)}},
+		{"complex128", &syntax.Number{Value: constant.MakeFloat64(1)}},
+		{"url", &syntax.String{Value: "https://snai.pe/boa"}},
+		{"regexp", &syntax.String{Value: "^.*$"}},
+	}
+}
+
+func buildMap(nodes []nodespec) *syntax.Map {
+	m := &syntax.Map{}
+	for _, n := range nodes {
+		m.Entries = append(m.Entries, &syntax.MapEntry{
+			Key:   &syntax.String{Value: n.key},
+			Value: n.value,
+		})
+	}
+	return m
+}
+
+func buildList(nodes []nodespec) *syntax.List {
+	l := &syntax.List{}
+	for _, n := range nodes {
+		l.Items = append(l.Items, n.value)
+	}
+	return l
+}
+
 func init() {
 	expected.Struct = &expectedNest
 	expected.Map = map[interface{}]interface{}{
@@ -115,118 +171,44 @@ func init() {
 		"^.*$",
 	}
 
-	type nodespec struct {
-		key   string
-		typ   syntax.NodeType
-		value interface{}
+	nodes := makeNodes()
+	m2 := buildMap(nodes)
+
+	m1 := buildMap(nodes)
+	m1.Entries = append(m1.Entries,
+		&syntax.MapEntry{Key: &syntax.String{Value: "map"}, Value: m2},
+		&syntax.MapEntry{Key: &syntax.String{Value: "list"}, Value: buildList(nodes)},
+		&syntax.MapEntry{Key: &syntax.String{Value: "struct"}, Value: m2},
+	)
+	testNode = m1
+
+	// Build the keypath test node
+	mkp := &syntax.Map{}
+	for _, n := range nodes {
+		mkp.Entries = append(mkp.Entries, &syntax.MapEntry{
+			Key:   &testKeyPath{path: []interface{}{"nested", n.key}},
+			Value: n.value,
+		})
 	}
-
-	nodes := []nodespec{
-		{"str", syntax.NodeString, "string"},
-		{"bytes", syntax.NodeString, "string"},
-		{"int", syntax.NodeNumber, constant.MakeInt64(1)},
-		{"int8", syntax.NodeNumber, constant.MakeInt64(1)},
-		{"int16", syntax.NodeNumber, constant.MakeInt64(1)},
-		{"int32", syntax.NodeNumber, constant.MakeInt64(1)},
-		{"int64", syntax.NodeNumber, constant.MakeInt64(1)},
-		{"uint", syntax.NodeNumber, constant.MakeUint64(1)},
-		{"uint8", syntax.NodeNumber, constant.MakeUint64(1)},
-		{"uint16", syntax.NodeNumber, constant.MakeUint64(1)},
-		{"uint32", syntax.NodeNumber, constant.MakeUint64(1)},
-		{"uint64", syntax.NodeNumber, constant.MakeUint64(1)},
-		{"uintptr", syntax.NodeNumber, constant.MakeUint64(1)},
-		{"float32", syntax.NodeNumber, constant.MakeFloat64(1)},
-		{"float64", syntax.NodeNumber, constant.MakeFloat64(1)},
-		{"complex64", syntax.NodeNumber, constant.MakeFloat64(1)},
-		{"complex128", syntax.NodeNumber, constant.MakeFloat64(1)},
-		{"url", syntax.NodeString, "https://snai.pe/boa"},
-		{"regexp", syntax.NodeString, "^.*$"},
+	for _, n := range nodes {
+		mkp.Entries = append(mkp.Entries, &syntax.MapEntry{
+			Key:   &testKeyPath{path: []interface{}{"nested", "map", n.key}},
+			Value: n.value,
+		})
 	}
-
-	m1 := syntax.Node{Type: syntax.NodeMap}
-	m2 := m1
-	l := syntax.Node{Type: syntax.NodeList}
-
-	fillNode := func(root *syntax.Node, kv bool) **syntax.Node {
-		prev := &root.Child
-		for _, n := range nodes {
-			node := &syntax.Node{
-				Type:  n.typ,
-				Value: n.value,
-			}
-			if kv {
-				node = &syntax.Node{
-					Type:  syntax.NodeString,
-					Value: n.key,
-					Child: node,
-				}
-			}
-			*prev = node
-			prev = &node.Sibling
-		}
-		return prev
+	for _, n := range nodes {
+		mkp.Entries = append(mkp.Entries, &syntax.MapEntry{
+			Key:   &testKeyPath{path: []interface{}{"nested", "struct", n.key}},
+			Value: n.value,
+		})
 	}
-
-	fillNode(&l, false)
-	fillNode(&m2, true)
-	prev := fillNode(&m1, true)
-
-	mapnode := &syntax.Node{
-		Type:  syntax.NodeString,
-		Value: "map",
-		Child: &m2,
+	for i, n := range nodes {
+		mkp.Entries = append(mkp.Entries, &syntax.MapEntry{
+			Key:   &testKeyPath{path: []interface{}{"nested", "list", i}},
+			Value: n.value,
+		})
 	}
-	*prev = mapnode
-	prev = &mapnode.Sibling
-
-	listnode := &syntax.Node{
-		Type:  syntax.NodeString,
-		Value: "list",
-		Child: &l,
-	}
-	*prev = listnode
-	prev = &listnode.Sibling
-
-	structnode := &syntax.Node{
-		Type:  syntax.NodeString,
-		Value: "struct",
-		Child: &m2,
-	}
-	*prev = structnode
-	prev = &structnode.Sibling
-
-	testNode = &m1
-
-	fillNodeKeypath := func(prev **syntax.Node, kv bool, prefix ...interface{}) **syntax.Node {
-		for i, n := range nodes {
-			var path []interface{}
-			if kv {
-				path = append(append(([]interface{})(nil), prefix...), n.key)
-			} else {
-				path = append(append(([]interface{})(nil), prefix...), i)
-			}
-			node := &syntax.Node{
-				Type:  syntax.NodeKeyPath,
-				Value: path,
-				Child: &syntax.Node{
-					Type:  n.typ,
-					Value: n.value,
-				},
-			}
-			*prev = node
-			prev = &node.Sibling
-		}
-		return prev
-	}
-
-	var mkp syntax.Node
-	mkp.Type = syntax.NodeMap
-	prev = fillNodeKeypath(&mkp.Child, true, "nested")
-	prev = fillNodeKeypath(prev, true, "nested", "map")
-	prev = fillNodeKeypath(prev, true, "nested", "struct")
-	prev = fillNodeKeypath(prev, false, "nested", "list")
-
-	testNodeKeypath = &mkp
+	testNodeKeypath = mkp
 }
 
 func TestUnmarshal(t *testing.T) {
@@ -254,7 +236,6 @@ func TestUnmarshal(t *testing.T) {
 
 		err := Unmarshal(reflect.ValueOf(&act).Elem(), testNodeKeypath, encoding.CamelCase, false, nil)
 		if err != nil {
-			t.Log(testNodeKeypath)
 			t.Fatal(err)
 		}
 

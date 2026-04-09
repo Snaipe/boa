@@ -45,11 +45,11 @@ func (unmarshaler *UnmarshalerBase) Decode(in io.Reader, v interface{}) error {
 			}
 			return err
 		}
-		if node, ok := v.(**syntax.Node); ok {
+		if node, ok := v.(**syntax.Document); ok {
 			*node = root
 			return nil
 		}
-		err = reflectutil.Unmarshal(ptr.Elem(), root.Child, unmarshaler.NamingConvention, true, unmarshaler.Self)
+		err = reflectutil.Unmarshal(ptr.Elem(), root.Root, unmarshaler.NamingConvention, true, unmarshaler.Self)
 		if e, ok := err.(*encoding.LoadError); ok {
 			e.Filename = Name(in)
 		}

@@ -161,7 +161,7 @@ func (m *marshaler) MarshalValue(v reflect.Value) (bool, error) {
 			return false, fmt.Errorf("json.Marshaler returned invalid JSON: %w", err)
 		}
 
-		if err := node.Marshal(m); err != nil {
+		if err := syntax.MarshalDocument(node, m); err != nil {
 			return false, err
 		}
 		return true, nil
@@ -247,10 +247,11 @@ func (m *marshaler) Stringify(v reflect.Value) (string, bool, error) {
 		if err != nil {
 			return "", false, fmt.Errorf("json.Marshaler returned invalid JSON: %w", err)
 		}
-		if node.Child == nil || node.Child.Type != syntax.NodeString {
+		str, ok := node.Root.(*syntax.String)
+		if !ok {
 			return "", false, fmt.Errorf("unable to marshal object key: json.Marshaler returned a non-string value")
 		}
-		return node.Child.Value.(string), true, nil
+		return str.Value, true, nil
 	}
 	return "", false, nil
 }
@@ -315,8 +316,8 @@ func (m *marshaler) MarshalStructValuePost(mv reflect.Value, kv reflectutil.MapE
 	return m.WriteNewline()
 }
 
-func (m *marshaler) MarshalNode(node *syntax.Node) error {
-	for _, tok := range node.Tokens {
+func (m *marshaler) emitTokens(tokens []syntax.Token) error {
+	for _, tok := range tokens {
 		if m.json {
 			switch tok.Type {
 			case syntax.TokenComment, syntax.TokenInlineComment:
@@ -346,32 +347,46 @@ func (m *marshaler) MarshalNode(node *syntax.Node) error {
 			return err
 		}
 	}
+	return nil
+}
 
-	switch node.Type {
-	case syntax.NodeMap, syntax.NodeList:
+func (m *marshaler) MarshalNode(node syntax.Value) error {
+	if err := m.emitTokens(node.Base().Tokens); err != nil {
+		return err
+	}
+
+	switch node.(type) {
+	case *syntax.Map, *syntax.List:
 		m.depth++
 	}
 
 	return nil
 }
 
-func (m *marshaler) MarshalNodePost(node *syntax.Node) error {
-	switch node.Type {
-	case syntax.NodeMap, syntax.NodeList:
+func (m *marshaler) MarshalNodePost(node syntax.Value) error {
+	switch node.(type) {
+	case *syntax.Map, *syntax.List:
 		m.depth--
 	}
 
+	suffix := node.Base().Suffix
+
+	// In JSON mode, find the last non-whitespace token to decide whether
+	// to suppress a trailing comma.
 	var last *syntax.Token
-	for i := len(node.Suffix) - 1; last == nil && i >= 0; i-- {
-		tok := &node.Suffix[i]
-		switch tok.Type {
-		case syntax.TokenComment, syntax.TokenInlineComment, syntax.TokenNewline, syntax.TokenWhitespace:
-			continue
+	if m.json {
+		for i := len(suffix) - 1; last == nil && i >= 0; i-- {
+			tok := &suffix[i]
+			switch tok.Type {
+			case syntax.TokenComment, syntax.TokenInlineComment, syntax.TokenNewline, syntax.TokenWhitespace:
+				continue
+			}
+			last = tok
 		}
-		last = tok
 	}
 
-	for _, tok := range node.Suffix {
+	for i := range suffix {
+		tok := &suffix[i]
 		if m.json {
 			switch tok.Type {
 			case syntax.TokenComment, syntax.TokenInlineComment:
@@ -468,6 +483,12 @@ type EncoderOption func(*encoder)
 func JSON() EncoderOption {
 	return func(encoder *encoder) {
 		encoder.marshaler.json = true
+	}
+}
+
+func Reformat() EncoderOption {
+	return func(encoder *encoder) {
+		encoder.marshaler.reformat = true
 	}
 }
 
