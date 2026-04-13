@@ -81,8 +81,13 @@ func abs(components ...string) string {
 //     values and compares them against the JSON reference (semantic check).
 //
 // skip is a list of directory name suffixes to skip (e.g. known-bad cases).
-func runYAMLParserSuite(t *testing.T, dir string, mkParser func(io.Reader) syntax.Parser, skip []string) {
+func runYAMLParserSuite(t *testing.T, dir string, schema *Schema, skip []string) {
 	t.Helper()
+	mkParser := func(r io.Reader) syntax.Parser {
+		p := newParser(r).(*parser)
+		p.schema = schema
+		return p
+	}
 	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			t.Fatal(err)
@@ -214,10 +219,13 @@ func runYAMLParserSuite(t *testing.T, dir string, mkParser func(io.Reader) synta
 			}
 
 			// Decode each parsed document into interface{} and compare.
+			// Pass a schema-aware unmarshaler so that format-specific hooks
+			// (e.g. YAML merge key expansion) fire during the semantic check.
+			u := &unmarshaler{schema: schema}
 			var actualDocs []interface{}
 			for _, doc := range docs {
 				var v interface{}
-				if err := reflectutil.Unmarshal(reflect.ValueOf(&v).Elem(), doc.Root, encoding.SnakeCase, true, nil); err != nil {
+				if err := reflectutil.Unmarshal(reflect.ValueOf(&v).Elem(), doc.Root, encoding.SnakeCase, true, u); err != nil {
 					t.Fatal(err)
 				}
 				actualDocs = append(actualDocs, v)
@@ -249,23 +257,29 @@ func runYAMLParserSuite(t *testing.T, dir string, mkParser func(io.Reader) synta
 	})
 }
 
-// TestYAMLParser walks the standard YAML test suite and testdata/yaml1.2,
-// both using the YAML 1.2 core schema.
-func TestYAMLParser(t *testing.T) {
-	mkParser := func(r io.Reader) syntax.Parser { return newParser(r) }
+// TestYAML12Parser walks the standard YAML test suite, testdata/yaml1.2, and
+// testdata/no-merge using the pure YAML 1.2 core schema (no merge key support).
+// testdata/no-merge explicitly validates that "<<" is treated as a plain string.
+func TestYAML12Parser(t *testing.T) {
 	// Some standard test cases contain invalid JSON in the reference file.
-	runYAMLParserSuite(t, "testdata/standard", mkParser, []string{"8G76", "HWV9"})
-	runYAMLParserSuite(t, "testdata/yaml1.2", mkParser, nil)
+	runYAMLParserSuite(t, "testdata/standard", YAML1_2, []string{"8G76", "HWV9"})
+	runYAMLParserSuite(t, "testdata/yaml1.2", YAML1_2, nil)
+	runYAMLParserSuite(t, "testdata/no-merge", YAML1_2, nil)
+}
+
+// TestYAMLParser walks the standard YAML test suite, testdata/yaml1.2, and
+// testdata/yaml1.2-merge using the default decoder schema, which is YAML1_2
+// with merge-keys support.
+func TestYAMLParser(t *testing.T) {
+	// Some standard test cases contain invalid JSON in the reference file.
+	runYAMLParserSuite(t, "testdata/standard", DefaultSchema, []string{"8G76", "HWV9"})
+	runYAMLParserSuite(t, "testdata/yaml1.2", DefaultSchema, nil)
+	runYAMLParserSuite(t, "testdata/yaml1.2-merge", DefaultSchema, nil)
 }
 
 // TestYAML11Parser walks testdata/yaml1.1 using the YAML 1.1 schema, which
 // accepts the broader boolean forms (y/n, yes/no, on/off) and the legacy
 // octal (0NNN) and binary (0bNNN) integer prefixes.
 func TestYAML11Parser(t *testing.T) {
-	mkParser := func(r io.Reader) syntax.Parser {
-		p := newParser(r).(*parser)
-		p.schema = YAML1_1
-		return p
-	}
-	runYAMLParserSuite(t, "testdata/yaml1.1", mkParser, nil)
+	runYAMLParserSuite(t, "testdata/yaml1.1", YAML1_1, nil)
 }

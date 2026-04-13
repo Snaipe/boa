@@ -1,0 +1,1 @@
+YAML 1.2 strict: << with alias is a literal string key, not expanded

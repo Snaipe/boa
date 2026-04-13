@@ -6,6 +6,7 @@
 package yaml
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"reflect"
@@ -39,12 +40,127 @@ type unmarshaler struct {
 }
 
 func (*unmarshaler) UnmarshalValue(val reflect.Value, node Value) (bool, error) {
+	// A Merge node in value position (e.g. "foo: <<") decodes as the literal
+	// string "<<" rather than producing an error.
+	if _, ok := node.(*Merge); ok {
+		switch val.Kind() {
+		case reflect.Interface:
+			val.Set(reflect.ValueOf("<<"))
+			return true, nil
+		case reflect.String:
+			val.SetString("<<")
+			return true, nil
+		}
+	}
 	return false, nil
+}
+
+// PreprocessMap implements reflectutil.MapPreprocessor by expanding YAML merge
+// keys (<<) before the generic map-unmarshaling logic processes the entries.
+func (*unmarshaler) PreprocessMap(mapNode *Map) (*Map, error) {
+	return flattenMerge(mapNode)
+}
+
+// flattenMerge rewrites mapNode so that all merge key (<<) entries are
+// expanded inline. Explicit entries appear first in their original order;
+// merged entries whose keys do not already appear explicitly follow.
+// Earlier merge sources take precedence over later ones.
+// Returns mapNode unchanged if it contains no merge keys.
+func flattenMerge(mapNode *Map) (*Map, error) {
+	hasMerge := false
+	for _, entry := range mapNode.Entries {
+		if _, ok := entry.Key.(*Merge); ok {
+			hasMerge = true
+			break
+		}
+	}
+	if !hasMerge {
+		return mapNode, nil
+	}
+
+	// Build the set of keys that appear explicitly (non-merge) in this mapping.
+	explicitKeys := make(map[string]bool)
+	for _, entry := range mapNode.Entries {
+		if _, ok := entry.Key.(*Merge); ok {
+			continue
+		}
+		if s, ok := resolveAlias(entry.Key).(*String); ok {
+			explicitKeys[s.Value] = true
+		}
+	}
+
+	// Produce the flat entry list: explicit entries first, merged entries second.
+	result := &Map{Node: mapNode.Node}
+	for _, entry := range mapNode.Entries {
+		if _, ok := entry.Key.(*Merge); ok {
+			continue
+		}
+		result.Entries = append(result.Entries, entry)
+	}
+	for _, entry := range mapNode.Entries {
+		if _, ok := entry.Key.(*Merge); ok {
+			if err := appendMergeEntries(&result.Entries, entry.Value, explicitKeys); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return result, nil
+}
+
+// appendMergeEntries recursively appends entries from mergeVal (a mapping or
+// sequence of mappings) to entries, skipping keys already present in skipKeys.
+// skipKeys is extended as entries are added to prevent later sources from
+// overriding earlier ones.
+func appendMergeEntries(entries *[]*MapEntry, mergeVal Value, skipKeys map[string]bool) error {
+	mergeVal = resolveAlias(mergeVal)
+	switch v := mergeVal.(type) {
+	case *Map:
+		for _, entry := range v.Entries {
+			if _, ok := entry.Key.(*Merge); ok {
+				// Nested merge key inside a merged mapping: recurse.
+				if err := appendMergeEntries(entries, entry.Value, skipKeys); err != nil {
+					return err
+				}
+				continue
+			}
+			s, ok := resolveAlias(entry.Key).(*String)
+			if !ok {
+				continue // non-string keys cannot participate in a merge
+			}
+			if skipKeys[s.Value] {
+				continue // already set by explicit or earlier-merged entry
+			}
+			skipKeys[s.Value] = true
+			*entries = append(*entries, entry)
+		}
+		return nil
+	case *List:
+		for _, item := range v.Items {
+			if err := appendMergeEntries(entries, item, skipKeys); err != nil {
+				return err
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("merge key value must be a mapping or sequence of mappings, got %T", mergeVal)
+	}
+}
+
+// resolveAlias follows alias chains and returns the first non-alias value.
+func resolveAlias(v Value) Value {
+	for {
+		if a, ok := v.(*Alias); ok {
+			v = a.Target
+		} else {
+			return v
+		}
+	}
 }
 
 var (
 	_ reflectutil.StructTagParser = (*unmarshaler)(nil)
 	_ reflectutil.Unmarshaler     = (*unmarshaler)(nil)
+	_ reflectutil.MapPreprocessor = (*unmarshaler)(nil)
 )
 
 type decoder struct {
@@ -61,7 +177,7 @@ func NewDecoder(rd io.Reader) encoding.Decoder {
 
 	// Defaults
 	decoder.unmarshaler.NamingConvention = encoding.KebabCase
-	decoder.unmarshaler.schema = YAML1_2
+	decoder.unmarshaler.schema = DefaultSchema
 	return &decoder
 }
 

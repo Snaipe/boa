@@ -75,6 +75,7 @@ func unmarshal(val reflect.Value, node syntax.Value, convention encoding.NamingC
 	if alias, ok := node.(*syntax.Alias); ok {
 		return unmarshal(val, alias.Target, convention, path, merge, unmarshaler)
 	}
+
 	typ := val.Type()
 
 	target := func() string {
@@ -89,6 +90,18 @@ func unmarshal(val reflect.Value, node syntax.Value, convention encoding.NamingC
 			return nil
 		}
 		return &encoding.LoadError{Cursor: node.Base().Position, Target: target(), Err: err}
+	}
+
+	// Allow format-specific map pre-processing (e.g. YAML merge key expansion).
+	if mapNode, ok := node.(*syntax.Map); ok {
+		if pp, ok := unmarshaler.(MapPreprocessor); ok {
+			var err error
+			mapNode, err = pp.PreprocessMap(mapNode)
+			if err != nil {
+				return val, newErr(err)
+			}
+			node = mapNode
+		}
 	}
 
 	newNodeErr := func(exp string) error {
@@ -738,6 +751,14 @@ func ConstantToFloat(constv constant.Value) reflect.Value {
 	}
 	out := constant.Val(constv)
 	return reflect.ValueOf(&out).Elem().Elem()
+}
+
+// MapPreprocessor is an optional interface that Unmarshaler implementations
+// may satisfy to transform a *syntax.Map before its entries are unmarshaled.
+// This hook allows format-specific map rewriting (e.g. YAML merge key
+// expansion) without coupling the generic unmarshal logic to any one format.
+type MapPreprocessor interface {
+	PreprocessMap(*syntax.Map) (*syntax.Map, error)
 }
 
 func IsList(typ reflect.Type) bool {

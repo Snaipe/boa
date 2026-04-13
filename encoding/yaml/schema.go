@@ -29,6 +29,12 @@ type Schema struct {
 }
 
 var (
+	// DefaultSchema extends YAML1_2 with the widely-supported "<<"
+	// merge key convention (tag:yaml.org,2002:merge). This is the default
+	// schema used by the decoder.
+	DefaultSchema = YAML1_2.Clone().
+			Type("tag:yaml.org,2002:merge", `^<<$`, processMerge)
+
 	Failsafe = NewSchema("Failsafe").
 			Tag("!!", "tag:yaml.org,2002:")
 
@@ -39,6 +45,9 @@ var (
 		Type("tag:yaml.org,2002:int", `^-?(?:0|[1-9][0-9]*)$`, processInt).
 		Type("tag:yaml.org,2002:float", `^-?(?:0|[1-9][0-9]*)(?:\.[0-9]*)?(?:[eE][-+]?[0-9]+)?$`, processFloat)
 
+	// YAML1_2 is the pure YAML 1.2 core schema. It does not include merge key
+	// support ("<<"), which is not part of the YAML 1.2 specification.
+	// Use YAML1_2WithMergeKey for the common extension that recognises "<<".
 	YAML1_2 = NewSchema("YAML Core 1.2").
 		Tag("!!", "tag:yaml.org,2002:").
 		Type("tag:yaml.org,2002:null", `^(?:null|Null|NULL|~|)$`, processNil).
@@ -47,17 +56,19 @@ var (
 		Type("tag:yaml.org,2002:float", `^(?:\.nan|\.NaN|\.NAN|[-+]?(?:\.inf|\.Inf|\.INF)|[-+]?(\.[0-9]+|[0-9]+(\.[0-9]*)?)([eE][-+]?[0-9]+)?)$`, processFloat).
 		Type("tag:yaml.org,2002:str", `(?m:^.*$)`, processStr)
 
-	// YAML1_1 is the YAML 1.1 core schema. It extends YAML1_2 with the broader
+	// YAML1_1 is the YAML 1.1 core schema. It extends YAML 1.2 with the broader
 	// boolean forms accepted by YAML 1.1 (y/n, yes/no, on/off and their
 	// capitalisation variants), the legacy octal integer prefix (0NNN), binary
-	// integers (0bNNN), and sexagesimal (base-60) integer and float literals
-	// (e.g. 190:20:30 = 685230, 190:20:30.15 = 685230.15) from yaml.org/type/.
+	// integers (0bNNN), sexagesimal (base-60) integer and float literals
+	// (e.g. 190:20:30 = 685230, 190:20:30.15 = 685230.15), and merge keys,
+	// all from yaml.org/type/.
 	YAML1_1 = NewSchema("YAML Core 1.1").
 		Tag("!!", "tag:yaml.org,2002:").
 		Type("tag:yaml.org,2002:null", `^(?:null|Null|NULL|~|)$`, processNil).
 		Type("tag:yaml.org,2002:bool", `^(?:y|Y|yes|Yes|YES|true|True|TRUE|on|On|ON|n|N|no|No|NO|false|False|FALSE|off|Off|OFF)$`, processBool).
 		Type("tag:yaml.org,2002:int", `^(?:[-+]?0b[0-1]+|[-+]?0[0-7]+|[-+]?(?:0|[1-9][0-9]*)|[-+]?0x[0-9a-fA-F]+|[-+]?[1-9][0-9]*(:[0-5]?[0-9])+)$`, processInt).
 		Type("tag:yaml.org,2002:float", `^(?:\.nan|\.NaN|\.NAN|[-+]?(?:\.inf|\.Inf|\.INF)|[-+]?[0-9][0-9]*(:[0-5]?[0-9])+\.[0-9]*|[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?)$`, processFloat).
+		Type("tag:yaml.org,2002:merge", `^<<$`, processMerge).
 		Type("tag:yaml.org,2002:str", `(?m:^.*$)`, processStr)
 )
 
@@ -118,9 +129,39 @@ func (schema *Schema) Tag(alias, tag string) *Schema {
 	return schema
 }
 
+// Clone returns a deep copy of s. The copy can be modified independently
+// (via Type, Tag, etc.) without affecting the original.
+func (s *Schema) Clone() *Schema {
+	dup := &Schema{
+		name:       s.name,
+		shorthands: make(map[string]string, len(s.shorthands)),
+		resolvers:  make([]resolver, len(s.resolvers)),
+		processors: make(map[string]func(Node, TaggedValue) (Value, error), len(s.processors)),
+	}
+	for k, v := range s.shorthands {
+		dup.shorthands[k] = v
+	}
+	copy(dup.resolvers, s.resolvers)
+	for k, v := range s.processors {
+		dup.processors[k] = v
+	}
+	return dup
+}
+
 func (schema *Schema) Type(tag, re string, processor func(Node, TaggedValue) (Value, error)) *Schema {
 	if re != "" {
-		schema.resolvers = append(schema.resolvers, resolver{regexp.MustCompile(re), tag})
+		r := resolver{regexp.MustCompile(re), tag}
+		// Insert before the trailing str catch-all (if any) so that callers can
+		// safely append specific types after the schema is built without worrying
+		// about resolver ordering.
+		n := len(schema.resolvers)
+		if n > 0 && schema.resolvers[n-1].tag == "tag:yaml.org,2002:str" {
+			schema.resolvers = append(schema.resolvers, resolver{})
+			schema.resolvers[n] = schema.resolvers[n-1]
+			schema.resolvers[n-1] = r
+		} else {
+			schema.resolvers = append(schema.resolvers, r)
+		}
 	}
 	schema.processors[tag] = processor
 	return schema
@@ -190,6 +231,20 @@ func (schema *Schema) processSeq(base Node, val TaggedValue) (Value, error) {
 
 func (schema *Schema) processMap(base Node, val TaggedValue) (Value, error) {
 	return &Map{Node: base}, nil
+}
+
+// Merge is a YAML merge key node produced when the plain scalar "<<" is
+// resolved as tag:yaml.org,2002:merge. It implements syntax.MergeKey so
+// that reflectutil can expand the associated mapping(s) into the parent map.
+type Merge struct {
+	Node
+}
+
+// IsMergeKey implements syntax.MergeKey.
+func (*Merge) IsMergeKey() {}
+
+func processMerge(base Node, val TaggedValue) (Value, error) {
+	return &Merge{Node: base}, nil
 }
 
 func processNil(base Node, val TaggedValue) (Value, error) {
