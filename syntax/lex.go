@@ -309,7 +309,9 @@ func (l *Lexer) AcceptFunc(fn func(rune) bool) (rune, error) {
 	return r, nil
 }
 
-func (l *Lexer) AcceptUntil(fn func(rune) bool) (string, error) {
+// AcceptWhile accepts runes as long as fn(r) returns true, stopping at EOF
+// or at the first rune for which fn returns false (which is pushed back).
+func (l *Lexer) AcceptWhile(fn func(rune) bool) (string, error) {
 	var out strings.Builder
 	for {
 		r, _, err := l.ReadRune()
@@ -330,7 +332,7 @@ func (l *Lexer) AcceptUntil(fn func(rune) bool) (string, error) {
 // AcceptRun accepts characters from the character set chars, returning the
 // accepted string. It stops at EOF or at any character not in chars.
 func (l *Lexer) AcceptRun(chars string) (string, error) {
-	return l.AcceptUntil(func(r rune) bool {
+	return l.AcceptWhile(func(r rune) bool {
 		return strings.ContainsRune(chars, r)
 	})
 }

@@ -82,7 +82,7 @@ func (state *lexerState) lex(l *Lexer) StateFunc {
 
 	switch r {
 	case ' ', '\t':
-		_, err := l.AcceptUntil(isSpace)
+		_, err := l.AcceptWhile(isSpace)
 		if err != nil {
 			return l.Error(err)
 		}
@@ -139,7 +139,7 @@ func (state *lexerState) lex(l *Lexer) StateFunc {
 		l.Emit(TokenNewline, nil)
 	// Comments
 	case '#':
-		comment, err := l.AcceptUntil(func(r rune) bool {
+		comment, err := l.AcceptWhile(func(r rune) bool {
 			return !isBadControlChar(r) && r != '\n'
 		})
 		if err != nil {
@@ -324,7 +324,7 @@ func (state *lexerState) lexString(l *Lexer, delim rune) StateFunc {
 					val.WriteRune(next)
 				case ' ', '\t':
 					// Whitespace is only allowed after a \ before a newline
-					l.AcceptUntil(isSpace)
+					l.AcceptWhile(isSpace)
 					r, _, err = l.ReadRune()
 					if err != nil {
 						return l.Error(err)
@@ -340,7 +340,7 @@ func (state *lexerState) lexString(l *Lexer, delim rune) StateFunc {
 						}
 					}
 					// Skip until the first non-space, non-newline character
-					_, err := l.AcceptUntil(func(r rune) bool {
+					_, err := l.AcceptWhile(func(r rune) bool {
 						return isSpace(r) || isNewline(r)
 					})
 					if err != nil {
@@ -517,7 +517,7 @@ func (state *lexerState) lexNumberOrDateOrKey(l *Lexer) StateFunc {
 }
 
 func (state *lexerState) lexIdentifier(l *Lexer) StateFunc {
-	_, err := l.AcceptUntil(isIdentifierChar)
+	_, err := l.AcceptWhile(isIdentifierChar)
 	if err != nil {
 		return l.Error(err)
 	}

@@ -137,7 +137,7 @@ func (state *lexerState) lex(l *Lexer) StateFunc {
 		}
 		switch next {
 		case '/':
-			comment, err := l.AcceptUntil(func(r rune) bool {
+			comment, err := l.AcceptWhile(func(r rune) bool {
 				return r != '\n' && r != '\r' && r != lineSep && r != parSep
 			})
 			if err != nil {
@@ -381,7 +381,7 @@ func (state *lexerState) lexBlockComment(l *Lexer) StateFunc {
 }
 
 func (state *lexerState) lexHex(l *Lexer) StateFunc {
-	num, err := l.AcceptUntil(func(r rune) bool {
+	num, err := l.AcceptWhile(func(r rune) bool {
 		return unicode.In(r, unicode.L, unicode.N)
 	})
 	if err != nil {
@@ -396,7 +396,7 @@ func (state *lexerState) lexHex(l *Lexer) StateFunc {
 }
 
 func (state *lexerState) lexNumber(l *Lexer) StateFunc {
-	num, err := l.AcceptUntil(func(r rune) bool {
+	num, err := l.AcceptWhile(func(r rune) bool {
 		return strings.IndexRune("0123456789eE+-.", r) != -1
 	})
 	if err != nil {
