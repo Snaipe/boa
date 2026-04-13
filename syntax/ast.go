@@ -107,6 +107,15 @@ type Nil struct {
 	Node
 }
 
+// Alias is a YAML alias node (*anchorName). It stores the raw alias token
+// verbatim for round-trip encoding and holds a reference to the anchored
+// value for semantic resolution during unmarshaling.
+type Alias struct {
+	Node
+	Name   string // anchor name (without leading '*')
+	Target Value  // the resolved anchor target
+}
+
 // KeyPather is implemented by map entry keys that represent a dotted key path
 // (e.g. TOML's "a.b.c" keys). The concrete type is format-specific.
 type KeyPather interface {
@@ -161,6 +170,8 @@ func walkValue(v Value, m Marshaler) error {
 				return err
 			}
 		}
+	case *Alias:
+		// Leaf node: emit the alias token verbatim; do not walk the target.
 	}
 	return m.MarshalNodePost(v)
 }

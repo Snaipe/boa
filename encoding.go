@@ -17,6 +17,7 @@ import (
 	"snai.pe/boa/encoding"
 	"snai.pe/boa/encoding/json5"
 	"snai.pe/boa/encoding/toml"
+	"snai.pe/boa/encoding/yaml"
 )
 
 // Decoders map filename extensions to decoders.  By default, the following
@@ -31,6 +32,8 @@ var Decoders = map[string]func(io.Reader) encoding.Decoder{
 	".toml":  toml.NewDecoder,
 	".json5": json5.NewDecoder,
 	".json":  json5.NewDecoder,
+	".yaml":  yaml.NewDecoder,
+	".yml":   yaml.NewDecoder,
 }
 
 // Encoders map filename extensions to encoders.  By default, the following
@@ -45,6 +48,8 @@ var Encoders = map[string]func(io.Writer) encoding.Encoder{
 	".toml":  toml.NewEncoder,
 	".json5": json5.NewEncoder,
 	".json":  json5.NewEncoder,
+	".yaml":  yaml.NewEncoder,
+	".yml":   yaml.NewEncoder,
 }
 
 // A Decoder reads and decodes a configuration from an input file.

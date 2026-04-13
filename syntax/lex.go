@@ -72,7 +72,7 @@ func (typ TokenType) String() string {
 }
 
 type backbuffer struct {
-	buf [2]struct {
+	buf [4]struct {
 		r    rune
 		w    int
 		next Cursor
@@ -270,6 +270,30 @@ func (l *Lexer) PeekRune() (rune, int, error) {
 	return r, w, nil
 }
 
+// PeekPrefix reads up to n runes ahead without consuming them and returns the
+// resulting string. A short result (len < n) means EOF was reached. Non-EOF
+// errors are returned. n must not exceed the backbuffer capacity (4).
+func (l *Lexer) PeekPrefix(n int) (string, error) {
+	var buf [4]rune
+	var read int
+	var retErr error
+	for read < n {
+		r, _, err := l.ReadRune()
+		if err != nil {
+			if err != io.EOF {
+				retErr = err
+			}
+			break
+		}
+		buf[read] = r
+		read++
+	}
+	for i := 0; i < read; i++ {
+		l.UnreadRune()
+	}
+	return string(buf[:read]), retErr
+}
+
 func (l *Lexer) Token() string {
 	return string(l.token.Bytes())
 }
@@ -335,6 +359,41 @@ func (l *Lexer) AcceptRun(chars string) (string, error) {
 	return l.AcceptWhile(func(r rune) bool {
 		return strings.ContainsRune(chars, r)
 	})
+}
+
+// RequireLF reads one rune and requires it to be '\n'. Used after reading '\r'
+// to consume the mandatory LF half of a CRLF sequence.
+func (l *Lexer) RequireLF() error {
+	r, _, err := l.ReadRune()
+	if err == io.EOF {
+		return io.ErrUnexpectedEOF
+	}
+	if err != nil {
+		return err
+	}
+	if r != '\n' {
+		return fmt.Errorf("unexpected character %q: expected LF after CR", r)
+	}
+	return nil
+}
+
+// AcceptNewline completes consuming a newline sequence when r has already been
+// read: if r is '\r', reads and requires the following '\n' (CRLF); if r is
+// '\n', it is a no-op. Use this to replace the `case '\r': RequireLF();
+// fallthrough; case '\n':` pattern with the cleaner `case '\r', '\n':`.
+func (l *Lexer) AcceptNewline(r rune) error {
+	if r == '\r' {
+		return l.RequireLF()
+	}
+	return nil
+}
+
+// SkipOptionalLF consumes the next rune if it is '\n'. Used after reading '\r'
+// when a following LF is not mandatory (e.g. inside quoted scalars).
+func (l *Lexer) SkipOptionalLF() {
+	if r, _, err := l.ReadRune(); err == nil && r != '\n' {
+		l.UnreadRune()
+	}
 }
 
 // EmitRaw emits a pre-built token directly to the token stream.

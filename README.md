@@ -15,7 +15,7 @@ go get snai.pe/boa
 
 Boa aims to be a **simple, human-focused, no-dependency** configuration management library.
 
-It supports **JSON5** and **TOML**.
+It supports **JSON5**, **TOML**, and **YAML**.
 
 Configurations are expressed as Go types, using struct field tags to map configuration files
 to type-safe data types.
@@ -60,6 +60,7 @@ The following languages are supported:
 
 * JSON5
 * TOML
+* YAML (both 1.2 and 1.1)
 
 In addition, all configuration parsers have the following properties:
 

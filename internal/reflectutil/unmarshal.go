@@ -25,12 +25,56 @@ type Unmarshaler interface {
 
 type UnmarshalFunc func(val reflect.Value, node syntax.Value) (bool, error)
 
+// isHashable reports whether v can be used as a Go map key.
+func isHashable(v reflect.Value) bool {
+	switch v.Kind() {
+	case reflect.Slice, reflect.Map, reflect.Func:
+		return false
+	case reflect.Interface:
+		if v.IsNil() {
+			return true
+		}
+		return isHashable(v.Elem())
+	case reflect.Struct:
+		for i := 0; i < v.NumField(); i++ {
+			if !isHashable(v.Field(i)) {
+				return false
+			}
+		}
+		return true
+	case reflect.Array:
+		for i := 0; i < v.Len(); i++ {
+			if !isHashable(v.Index(i)) {
+				return false
+			}
+		}
+		return true
+	default:
+		return true
+	}
+}
+
+// resolveAlias follows alias chains and returns the first non-alias value.
+func resolveAlias(v syntax.Value) syntax.Value {
+	for {
+		if a, ok := v.(*syntax.Alias); ok {
+			v = a.Target
+		} else {
+			return v
+		}
+	}
+}
+
 func Unmarshal(val reflect.Value, node syntax.Value, convention encoding.NamingConvention, merge bool, unmarshaler Unmarshaler) error {
 	_, err := unmarshal(val, node, convention, nil, merge, unmarshaler)
 	return err
 }
 
 func unmarshal(val reflect.Value, node syntax.Value, convention encoding.NamingConvention, path []string, merge bool, unmarshaler Unmarshaler) (reflect.Value, error) {
+	// Transparently resolve YAML aliases to their target values.
+	if alias, ok := node.(*syntax.Alias); ok {
+		return unmarshal(val, alias.Target, convention, path, merge, unmarshaler)
+	}
 	typ := val.Type()
 
 	target := func() string {
@@ -51,7 +95,8 @@ func unmarshal(val reflect.Value, node syntax.Value, convention encoding.NamingC
 		return newErr(fmt.Errorf("config has %T, but expected %v instead", node, exp))
 	}
 
-	toValue := func(node syntax.Value, path []string) (reflect.Value, error) {
+	var toValue func(node syntax.Value, path []string) (reflect.Value, error)
+	toValue = func(node syntax.Value, path []string) (reflect.Value, error) {
 		var (
 			rval    reflect.Value
 			recurse bool
@@ -83,6 +128,8 @@ func unmarshal(val reflect.Value, node syntax.Value, convention encoding.NamingC
 			var out []interface{}
 			rval = reflect.ValueOf(&out).Elem()
 			recurse = true
+		case *syntax.Alias:
+			return toValue(n.Target, path)
 		default:
 			return rval, fmt.Errorf("unsupported node type %T", node)
 		}
@@ -174,6 +221,11 @@ func unmarshal(val reflect.Value, node syntax.Value, convention encoding.NamingC
 					return val, err
 				}
 
+				if !isHashable(rkey) {
+					// YAML allows complex (unhashable) map keys; skip them in Go maps.
+					continue
+				}
+
 				rval := reflect.New(typ.Elem()).Elem()
 				mval := val.MapIndex(rkey)
 				if mval.IsValid() {
@@ -204,7 +256,8 @@ func unmarshal(val reflect.Value, node syntax.Value, convention encoding.NamingC
 		_, fields := VisibleFields(val, convention, unmarshaler)
 
 		for _, entry := range mapNode.Entries {
-			switch key := entry.Key.(type) {
+			entryKey := resolveAlias(entry.Key)
+			switch key := entryKey.(type) {
 			case syntax.KeyPather:
 				at := key.KeyPathComponents()
 				for _, e := range at {
@@ -247,7 +300,7 @@ func unmarshal(val reflect.Value, node syntax.Value, convention encoding.NamingC
 					return val, err
 				}
 			default:
-				return val, fmt.Errorf("unsupported key type %T", entry.Key)
+				return val, fmt.Errorf("unsupported key type %T", entryKey)
 			}
 		}
 

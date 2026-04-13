@@ -29,6 +29,11 @@ func deepEqual(lhs, rhs reflect.Value, fn func(lhs, rhs reflect.Value) (bool, er
 		rhs = rhs.Elem()
 	}
 	if lhs.Kind() != rhs.Kind() {
+		if fn != nil {
+			if ok, err := fn(lhs, rhs); ok {
+				return err
+			}
+		}
 		return fmt.Errorf("mismatching kinds %v and %v", lhs.Kind(), rhs.Kind())
 	}
 
