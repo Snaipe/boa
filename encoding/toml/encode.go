@@ -72,15 +72,15 @@ type marshaler struct {
 	structTagParser
 
 	// state
-	first       bool
-	curdepth    int
-	listdepth   int
-	valdepth    int
-	inline      bool
-	inlinerun   bool
-	newline     bool
-	path        []string
-	listofmap   []bool
+	first           bool
+	curdepth        int
+	listdepth       int
+	valdepth        int
+	inline          bool
+	inlinerun       bool
+	newline         bool
+	path            []string
+	listofmap       []bool
 	skipLeadWS      bool // reformat: skip leading whitespace of the next value node
 	sectionCount    int  // reformat: number of section headers emitted so far
 	hadTopLevelKeys bool // reformat: true if any key-value entry appeared before the first section

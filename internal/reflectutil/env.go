@@ -183,8 +183,8 @@ func PopulateFromEnv(to reflect.Value, automatic bool, names []string, lookup fu
 
 			uniq := map[string]struct{}{}
 			for _, name := range names {
-				uniq[name + "_" + formatted] = struct{}{}
-				uniq[name + "_" + asEnv] = struct{}{}
+				uniq[name+"_"+formatted] = struct{}{}
+				uniq[name+"_"+asEnv] = struct{}{}
 			}
 			tentatives := make([]string, 0, len(uniq))
 			for name := range uniq {
@@ -213,7 +213,7 @@ func PopulateFromEnv(to reflect.Value, automatic bool, names []string, lookup fu
 				key := encoding.ScreamingSnakeCase.Format(field.Name)
 				uniq := map[string]struct{}{}
 				for _, name := range names {
-					uniq[name + "_" + key] = struct{}{}
+					uniq[name+"_"+key] = struct{}{}
 				}
 				tentatives := make([]string, 0, len(uniq))
 				for name := range uniq {
