@@ -10,14 +10,13 @@ import (
 	"go/constant"
 	"math"
 	"math/big"
-	"regexp"
 	"strings"
 
 	. "snai.pe/boa/syntax"
 )
 
 type resolver struct {
-	regexp *regexp.Regexp
+	regexp *Regexp
 	tag    string
 }
 
@@ -62,25 +61,27 @@ var (
 			)
 
 	Failsafe = NewSchema("Failsafe").
-			Tag("!!", "tag:yaml.org,2002:")
+			Tag("!!", "tag:yaml.org,2002:").
+			Type("tag:yaml.org,2002:str", `^.*$`, processStr)
 
 	JSON = NewSchema("JSON").
 		Tag("!!", "tag:yaml.org,2002:").
 		Type("tag:yaml.org,2002:null", `^null$`, processNil).
 		Type("tag:yaml.org,2002:bool", `^(?:true|false)$`, processBool).
 		Type("tag:yaml.org,2002:int", `^-?(?:0|[1-9][0-9]*)$`, processInt).
-		Type("tag:yaml.org,2002:float", `^-?(?:0|[1-9][0-9]*)(?:\.[0-9]*)?(?:[eE][-+]?[0-9]+)?$`, processFloat)
+		Type("tag:yaml.org,2002:float", `^-?(?:0|[1-9][0-9]*)(?:\.[0-9]*)?(?:[eE][-+]?[0-9]+)?$`, processFloat).
+		Type("tag:yaml.org,2002:str", `^.*$`, processStr)
 
 	// YAML1_2 is the pure YAML 1.2 core schema. It does not include merge key
 	// support ("<<"), which is not part of the YAML 1.2 specification.
-	// Use YAML1_2WithMergeKey for the common extension that recognises "<<".
+	// Use DefaultSchema for the common extension that recognises "<<".
 	YAML1_2 = NewSchema("YAML Core 1.2").
 		Tag("!!", "tag:yaml.org,2002:").
 		Type("tag:yaml.org,2002:null", `^(?:null|Null|NULL|~|)$`, processNil).
 		Type("tag:yaml.org,2002:bool", `^(?:true|True|TRUE|false|False|FALSE)$`, processBool).
 		Type("tag:yaml.org,2002:int", `^(?:[-+]?[0-9]+|0o[0-7]+|0x[0-9a-fA-F]+)$`, processInt).
 		Type("tag:yaml.org,2002:float", `^(?:\.nan|\.NaN|\.NAN|[-+]?(?:\.inf|\.Inf|\.INF)|[-+]?(\.[0-9]+|[0-9]+(\.[0-9]*)?)([eE][-+]?[0-9]+)?)$`, processFloat).
-		Type("tag:yaml.org,2002:str", `(?m:^.*$)`, processStr)
+		Type("tag:yaml.org,2002:str", `^.*$`, processStr)
 
 	// YAML1_1 is the YAML 1.1 core schema. It extends YAML 1.2 with the broader
 	// boolean forms accepted by YAML 1.1 (y/n, yes/no, on/off and their
@@ -95,7 +96,7 @@ var (
 		Type("tag:yaml.org,2002:int", `^(?:[-+]?0b[0-1]+|[-+]?0[0-7]+|[-+]?(?:0|[1-9][0-9]*)|[-+]?0x[0-9a-fA-F]+|[-+]?[1-9][0-9]*(:[0-5]?[0-9])+)$`, processInt).
 		Type("tag:yaml.org,2002:float", `^(?:\.nan|\.NaN|\.NAN|[-+]?(?:\.inf|\.Inf|\.INF)|[-+]?[0-9][0-9]*(:[0-5]?[0-9])+\.[0-9]*|[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?)$`, processFloat).
 		Type("tag:yaml.org,2002:merge", `^<<$`, processMerge).
-		Type("tag:yaml.org,2002:str", `(?m:^.*$)`, processStr)
+		Type("tag:yaml.org,2002:str", `^.*$`, processStr)
 )
 
 func NewSchema(name string) *Schema {
@@ -104,7 +105,6 @@ func NewSchema(name string) *Schema {
 		shorthands: make(map[string]string),
 		processors: make(map[string]func(Node, TaggedValue) (Value, error)),
 	}
-	schema.Type("tag:yaml.org,2002:str", "", processStr)
 	schema.Type("tag:yaml.org,2002:seq", "", schema.processSeq)
 	schema.Type("tag:yaml.org,2002:map", "", schema.processMap)
 	return &schema
@@ -223,20 +223,32 @@ func RejectDuplicateKeys() SchemaOption {
 	return func(s *Schema) { s.rejectDuplicateKeys = true }
 }
 
+// Type registers a type resolver for the given YAML tag. re is a regexp that
+// matches the scalar values belonging to this type; when empty, no resolver is
+// registered (useful for collection tags like !!seq and !!map whose type is
+// inferred from structure, not content).
+//
+// Resolvers are kept in most-specific-first order: if the language of re is a
+// strict subset of an already-registered resolver's language, the new resolver
+// is inserted before that one. This means the caller does not need to worry
+// about declaration order; a catch-all like `^.*$` (for !!str) will always
+// sort to the end regardless of when Type is called.
 func (schema *Schema) Type(tag, re string, processor func(Node, TaggedValue) (Value, error)) *Schema {
 	if re != "" {
-		r := resolver{regexp.MustCompile(re), tag}
-		// Insert before the trailing str catch-all (if any) so that callers can
-		// safely append specific types after the schema is built without worrying
-		// about resolver ordering.
-		n := len(schema.resolvers)
-		if n > 0 && schema.resolvers[n-1].tag == "tag:yaml.org,2002:str" {
-			schema.resolvers = append(schema.resolvers, resolver{})
-			schema.resolvers[n] = schema.resolvers[n-1]
-			schema.resolvers[n-1] = r
-		} else {
-			schema.resolvers = append(schema.resolvers, r)
+		compiled := MustCompileRegexp("", re)
+		r := resolver{compiled, tag}
+		// Insert before the first existing resolver whose language is a superset
+		// of the new one, keeping the list in most-specific-first order.
+		pos := len(schema.resolvers)
+		for i, existing := range schema.resolvers {
+			if IsRegexpSubset(compiled, existing.regexp) {
+				pos = i
+				break
+			}
 		}
+		schema.resolvers = append(schema.resolvers, resolver{})
+		copy(schema.resolvers[pos+1:], schema.resolvers[pos:])
+		schema.resolvers[pos] = r
 	}
 	schema.processors[tag] = processor
 	return schema
@@ -263,23 +275,14 @@ func (schema *Schema) resolveTag(tag string) (string, error) {
 	return tag, nil
 }
 
-// process resolves and processes a YAML intermediate value into a typed Value.
-// base contains token annotations, val contains the YAML tagged value.
-// children is used for sequences and mappings.
-func (schema *Schema) process(base Node, val TaggedValue, children []yamlChild) (Value, error) {
+// process resolves and processes a YAML scalar value into a typed Value.
+// base contains token annotations; val carries the tag and scalar text.
+func (schema *Schema) process(base Node, val TaggedValue) (Value, error) {
 	var err error
 	if val.Tag == "" {
-		if len(children) > 0 {
-			if children[0].isMapping {
-				val.Tag = "!<tag:yaml.org,2002:map>"
-			} else {
-				val.Tag = "!<tag:yaml.org,2002:seq>"
-			}
-		} else {
-			val.Tag, err = schema.resolve(val.Scalar)
-			if err != nil {
-				return nil, err
-			}
+		val.Tag, err = schema.resolve(val.Scalar)
+		if err != nil {
+			return nil, err
 		}
 	}
 	val.Tag, err = schema.resolveTag(val.Tag)
@@ -291,13 +294,6 @@ func (schema *Schema) process(base Node, val TaggedValue, children []yamlChild) 
 		return nil, fmt.Errorf("undefined tag %v", val.Tag)
 	}
 	return process(base, val)
-}
-
-// yamlChild represents a child element during YAML processing.
-type yamlChild struct {
-	isMapping bool
-	key       Value
-	value     Value
 }
 
 func (schema *Schema) processSeq(base Node, val TaggedValue) (Value, error) {

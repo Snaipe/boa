@@ -1259,7 +1259,7 @@ func (p *parser) ResolveScalar(tok Token, leading []Token, tag string) Value {
 		tag = "!!str"
 	}
 	tv := TaggedValue{Tag: tag, Scalar: scalar}
-	val, err := p.schema.process(base, tv, nil)
+	val, err := p.schema.process(base, tv)
 	if err != nil {
 		return &String{Node: base, Value: scalar}
 	}
@@ -1286,7 +1286,7 @@ func (p *parser) resolveTaggedEmpty(tag string, leading []Token) Value {
 	}
 	base := Node{Tokens: leading}
 	tv := TaggedValue{Tag: tag, Scalar: ""}
-	val, err := p.schema.process(base, tv, nil)
+	val, err := p.schema.process(base, tv)
 	if err != nil {
 		return &String{Node: base, Value: ""}
 	}
