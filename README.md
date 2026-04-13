@@ -60,7 +60,7 @@ The following languages are supported:
 
 * JSON5
 * TOML
-* YAML (both 1.2 and 1.1, with merge keys extension)
+* YAML (both 1.2 and 1.1, with merge keys extension, as well as StrictYAML)
 
 In addition, all configuration parsers have the following properties:
 

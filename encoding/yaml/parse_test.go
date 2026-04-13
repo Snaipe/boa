@@ -283,3 +283,10 @@ func TestYAMLParser(t *testing.T) {
 func TestYAML11Parser(t *testing.T) {
 	runYAMLParserSuite(t, "testdata/yaml1.1", YAML1_1, nil)
 }
+
+// TestStrictYAMLParser walks testdata/strict-yaml using the StrictYAML schema,
+// which enforces that all scalars are strings, explicit tags/anchors/aliases are
+// rejected, flow style is rejected, and duplicate keys are rejected.
+func TestStrictYAMLParser(t *testing.T) {
+	runYAMLParserSuite(t, "testdata/strict-yaml", StrictYAML, nil)
+}

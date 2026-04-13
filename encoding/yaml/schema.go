@@ -26,6 +26,14 @@ type Schema struct {
 	shorthands map[string]string
 	resolvers  []resolver
 	processors map[string]func(Node, TaggedValue) (Value, error)
+
+	// Strict-mode restrictions applied via Option(). Each flag independently
+	// rejects one YAML feature at parse time.
+	rejectExplicitTags  bool // reject any !tag or !!tag annotation
+	noAnchorsAliases    bool // reject both &name anchors and *name aliases
+	rejectFlowStyle     bool // reject {...} flow mappings and [...] flow sequences
+	emptyScalarIsString bool // decode empty/absent scalars as "" instead of nil
+	rejectDuplicateKeys bool // reject mapping nodes with duplicate string keys
 }
 
 var (
@@ -34,6 +42,24 @@ var (
 	// schema used by the decoder.
 	DefaultSchema = YAML1_2.Clone().
 			Type("tag:yaml.org,2002:merge", `^<<$`, processMerge)
+
+	// StrictYAML is the StrictYAML schema. It enforces five restrictions over
+	// standard YAML: all untagged scalars are strings (no implicit typing, since
+	// the only resolver matches any scalar), explicit tags are rejected, anchors
+	// and aliases are rejected, flow-style collections are rejected, and
+	// duplicate mapping keys are rejected.
+	//
+	// See https://hitchdev.com/strictyaml/ for the full specification.
+	StrictYAML = NewSchema("StrictYAML").
+			Tag("!!", "tag:yaml.org,2002:").
+			Type("tag:yaml.org,2002:str", `^.*$`, processStr).
+			Option(
+				RejectExplicitTags(),
+				NoAnchorsOrAliases(),
+				RejectFlowStyle(),
+				EmptyScalarsAsStrings(),
+				RejectDuplicateKeys(),
+			)
 
 	Failsafe = NewSchema("Failsafe").
 			Tag("!!", "tag:yaml.org,2002:")
@@ -133,10 +159,15 @@ func (schema *Schema) Tag(alias, tag string) *Schema {
 // (via Type, Tag, etc.) without affecting the original.
 func (s *Schema) Clone() *Schema {
 	dup := &Schema{
-		name:       s.name,
-		shorthands: make(map[string]string, len(s.shorthands)),
-		resolvers:  make([]resolver, len(s.resolvers)),
-		processors: make(map[string]func(Node, TaggedValue) (Value, error), len(s.processors)),
+		name:                s.name,
+		shorthands:          make(map[string]string, len(s.shorthands)),
+		resolvers:           make([]resolver, len(s.resolvers)),
+		processors:          make(map[string]func(Node, TaggedValue) (Value, error), len(s.processors)),
+		rejectExplicitTags:  s.rejectExplicitTags,
+		noAnchorsAliases:    s.noAnchorsAliases,
+		rejectFlowStyle:     s.rejectFlowStyle,
+		emptyScalarIsString: s.emptyScalarIsString,
+		rejectDuplicateKeys: s.rejectDuplicateKeys,
 	}
 	for k, v := range s.shorthands {
 		dup.shorthands[k] = v
@@ -146,6 +177,50 @@ func (s *Schema) Clone() *Schema {
 		dup.processors[k] = v
 	}
 	return dup
+}
+
+// SchemaOption is a functional option that modifies a Schema.
+// Use Option to apply one or more options to a schema.
+type SchemaOption func(*Schema)
+
+// Option applies opts to s and returns s, enabling builder-style chaining.
+func (s *Schema) Option(opts ...SchemaOption) *Schema {
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
+
+// RejectExplicitTags returns a SchemaOption that causes the parser to reject
+// any explicit YAML tag (e.g. !!int or !foo).
+func RejectExplicitTags() SchemaOption {
+	return func(s *Schema) { s.rejectExplicitTags = true }
+}
+
+// NoAnchorsOrAliases returns a SchemaOption that causes the parser to reject
+// both anchor definitions (&name) and alias references (*name). Anchors and
+// aliases always come in pairs, so there is no meaningful use-case for allowing
+// one without the other.
+func NoAnchorsOrAliases() SchemaOption {
+	return func(s *Schema) { s.noAnchorsAliases = true }
+}
+
+// RejectFlowStyle returns a SchemaOption that causes the parser to reject
+// flow-style mappings ({...}) and sequences ([...]).
+func RejectFlowStyle() SchemaOption {
+	return func(s *Schema) { s.rejectFlowStyle = true }
+}
+
+// EmptyScalarsAsStrings returns a SchemaOption that causes absent or empty
+// scalar values to decode as empty strings instead of nil.
+func EmptyScalarsAsStrings() SchemaOption {
+	return func(s *Schema) { s.emptyScalarIsString = true }
+}
+
+// RejectDuplicateKeys returns a SchemaOption that causes the parser to reject
+// mapping nodes that contain duplicate string keys.
+func RejectDuplicateKeys() SchemaOption {
+	return func(s *Schema) { s.rejectDuplicateKeys = true }
 }
 
 func (schema *Schema) Type(tag, re string, processor func(Node, TaggedValue) (Value, error)) *Schema {

@@ -320,14 +320,14 @@ func (p *parser) value(parentIndent int, flow bool, inline bool) Value {
 			// fall through to the switch below
 		default:
 			p.back(tok)
-			return &Nil{Node: Node{Tokens: leading}}
+			return p.emptyScalar(leading)
 		}
 	}
 
 	switch tok.Type {
 	case TokenEOF, TokenDocumentEnd, TokenDirectivesEnd:
 		p.back(tok)
-		return &Nil{Node: Node{Tokens: leading}}
+		return p.emptyScalar(leading)
 	case TokenComma, TokenRBrace, TokenRSquare:
 		if flow {
 			p.back(tok)
@@ -412,6 +412,9 @@ func (p *parser) value(parentIndent int, flow bool, inline bool) Value {
 
 	switch tok.Type {
 	case TokenAlias:
+		if p.schema.noAnchorsAliases {
+			p.fail(tok, fmt.Errorf("aliases are not allowed in strict mode"))
+		}
 		name := tok.Value.(string)
 		target, ok := p.anchors[name]
 		if !ok {
@@ -442,6 +445,9 @@ func (p *parser) value(parentIndent int, flow bool, inline bool) Value {
 		val = alias
 
 	case TokenLSquare:
+		if p.schema.rejectFlowStyle {
+			p.fail(tok, fmt.Errorf("flow sequences are not allowed in strict mode"))
+		}
 		// In inline mode parentIndent is the block indent (e.g. dashIndent), so
 		// subtract 1 to give flowMinIndent = parentIndent+1 rather than +2.
 		flowOffset := parentIndent
@@ -454,6 +460,9 @@ func (p *parser) value(parentIndent int, flow bool, inline bool) Value {
 		val = p.tryAsBlockMapKey(flow, val, tok, entryCol)
 
 	case TokenLBrace:
+		if p.schema.rejectFlowStyle {
+			p.fail(tok, fmt.Errorf("flow mappings are not allowed in strict mode"))
+		}
 		flowOffset := parentIndent
 		if inline {
 			flowOffset--
@@ -704,6 +713,15 @@ func (p *parser) SeqItem(dash Token, dashIndent int, preceding []Token) Value {
 func (p *parser) BlockMapContinue(mapIndent int, firstKey Value) *Map {
 	m := &Map{Node: Node{Position: firstKey.Base().Position}}
 
+	// In strict mode, track seen string keys to detect duplicates.
+	var seenKeys map[string]bool
+	if p.schema.rejectDuplicateKeys {
+		seenKeys = make(map[string]bool)
+		if s, ok := firstKey.(*String); ok {
+			seenKeys[s.Value] = true
+		}
+	}
+
 	// Parse the value for the first key.
 	// YAML spec seq-spaces(n, block-out) = n-1: a block sequence value of a mapping
 	// entry may start at the same column as the key (parentIndent = mapIndent-1).
@@ -745,6 +763,14 @@ func (p *parser) BlockMapContinue(mapIndent int, firstKey Value) *Map {
 			}
 			// skipped = inter-entry whitespace; between = ws between key and colon.
 			key := p.ResolveScalar(tok, skipped, "")
+			if seenKeys != nil {
+				if s, ok := key.(*String); ok {
+					if seenKeys[s.Value] {
+						p.fail(tok, fmt.Errorf("duplicate key %q", s.Value))
+					}
+					seenKeys[s.Value] = true
+				}
+			}
 			key.Base().Suffix = append(between, colonTok)
 			val := p.Value(mapIndent-1, false)
 			m.Entries = append(m.Entries, &MapEntry{Key: key, Value: val})
@@ -758,6 +784,9 @@ func (p *parser) BlockMapContinue(mapIndent int, firstKey Value) *Map {
 
 		case TokenAlias:
 			// Alias as a mapping key (rare but valid).
+			if p.schema.noAnchorsAliases {
+				p.fail(tok, fmt.Errorf("aliases are not allowed in strict mode"))
+			}
 			name := tok.Value.(string)
 			target, ok := p.anchors[name]
 			if !ok {
@@ -796,6 +825,14 @@ func (p *parser) BlockMapContinue(mapIndent int, firstKey Value) *Map {
 				return m
 			}
 			key := p.ResolveScalar(tok, skipped, mods.tag)
+			if seenKeys != nil {
+				if s, ok := key.(*String); ok {
+					if seenKeys[s.Value] {
+						p.fail(tok, fmt.Errorf("duplicate key %q", s.Value))
+					}
+					seenKeys[s.Value] = true
+				}
+			}
 			key.Base().Suffix = append(between, colonTok)
 			if mods.anchor != "" {
 				p.anchors[mods.anchor] = key
@@ -1232,11 +1269,22 @@ func (p *parser) ResolveScalar(tok Token, leading []Token, tag string) Value {
 // resolveTaggedEmpty returns a typed empty node for a tag with no content.
 // For !!str this is an empty string; for other tags the schema decides.
 // When tag is empty, returns a plain Nil.
-func (p *parser) resolveTaggedEmpty(tag string, leading []Token) Value {
-	base := Node{Tokens: leading}
-	if tag == "" {
-		return &Nil{Node: base}
+// emptyScalar returns the Value for an absent/empty scalar with no tag.
+// In strict mode (schema.emptyScalarIsString) this is an empty String;
+// otherwise it is the conventional YAML Nil.
+func (p *parser) emptyScalar(tokens []Token) Value {
+	base := Node{Tokens: tokens}
+	if p.schema.emptyScalarIsString {
+		return &String{Node: base, Value: ""}
 	}
+	return &Nil{Node: base}
+}
+
+func (p *parser) resolveTaggedEmpty(tag string, leading []Token) Value {
+	if tag == "" {
+		return p.emptyScalar(leading)
+	}
+	base := Node{Tokens: leading}
 	tv := TaggedValue{Tag: tag, Scalar: ""}
 	val, err := p.schema.process(base, tv, nil)
 	if err != nil {
@@ -1428,6 +1476,9 @@ func (p *parser) parseModifiers(tok Token, leading *[]Token) (Token, valueModifi
 	for i := 0; i < 2; i++ {
 		switch tok.Type {
 		case TokenAnchor:
+			if p.schema.noAnchorsAliases {
+				p.fail(tok, fmt.Errorf("anchors are not allowed in strict mode"))
+			}
 			if mods.anchor != "" {
 				if !mods.crossedNewline {
 					p.fail(tok, fmt.Errorf("a node may only have one anchor"))
@@ -1444,6 +1495,9 @@ func (p *parser) parseModifiers(tok Token, leading *[]Token) (Token, valueModifi
 			tok, crossed = p.skipBlank(leading)
 			mods.crossedNewline = mods.crossedNewline || crossed
 		case TokenTag:
+			if p.schema.rejectExplicitTags {
+				p.fail(tok, fmt.Errorf("explicit tags are not allowed in strict mode"))
+			}
 			p.validateTagHandle(tok, tok.Value.(string))
 			mods.tag = tok.Value.(string)
 			mods.tagTok = tok
