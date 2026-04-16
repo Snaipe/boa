@@ -146,6 +146,11 @@ type Lexer struct {
 	tokens chan Token   // token ring buffer
 	prev   backbuffer   // stashed runes for UnreadRune
 	unread int          // number of unread bytes
+
+	// TODO: consider unifying pushback with prev (backbuffer) — they serve
+	// different access patterns today but overlap in purpose.
+	pushback []byte // bytes to drain before reading from Input
+	pboff    int    // read offset into pushback
 }
 
 func NewLexer(input io.Reader, init StateFunc) *Lexer {
@@ -230,6 +235,14 @@ func (l *Lexer) ReadRune() (r rune, w int, err error) {
 	if l.unread > 0 {
 		r, w, l.NextPosition, l.Position = l.prev.read()
 		l.unread--
+	} else if l.pboff < len(l.pushback) {
+		r, w = utf8.DecodeRune(l.pushback[l.pboff:])
+		l.pboff += w
+		if l.pboff >= len(l.pushback) {
+			l.pushback = l.pushback[:0]
+			l.pboff = 0
+		}
+		l.prev.write(r, w, l.NextPosition, l.Position)
 	} else {
 		r, w, err = l.Input.ReadRune()
 		if err != nil {
@@ -394,6 +407,25 @@ func (l *Lexer) SkipOptionalLF() {
 	if r, _, err := l.ReadRune(); err == nil && r != '\n' {
 		l.UnreadRune()
 	}
+}
+
+// TruncateToken trims the current token buffer to n bytes and restores the
+// cursor positions to the values recorded at that length. Used by the
+// concurrent NDK machines to backtrack without calling UnreadRune repeatedly.
+func (l *Lexer) TruncateToken(n int, pos, next Cursor) {
+	l.token.Truncate(n)
+	l.Position = pos
+	l.NextPosition = next
+}
+
+// PushBack injects s at the front of the input, to be read before any further
+// bytes from the original source.
+func (l *Lexer) PushBack(s string) {
+	if len(s) == 0 {
+		return
+	}
+	l.pushback = append(l.pushback[:0], s...)
+	l.pboff = 0
 }
 
 // EmitRaw emits a pre-built token directly to the token stream.
