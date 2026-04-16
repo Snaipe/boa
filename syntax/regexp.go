@@ -10,6 +10,7 @@ import (
 	"io"
 	"regexp/syntax"
 	"strings"
+	"unicode/utf8"
 )
 
 // Accept is a more consistently-behaving regexp matcher. It uses regexp/syntax
@@ -53,6 +54,131 @@ func (re *Regexp) GoString() string {
 	return "`" + re.orig + "`"
 }
 
+// nfaState is a reusable NFA execution engine over a regexp/syntax.Prog.
+type nfaState struct {
+	prog *syntax.Prog
+	cur  []uint32
+	next []uint32
+}
+
+// step advances the NFA by consuming rune r. captures and last may be nil.
+func (ns *nfaState) step(r rune, pos int, captures []int, last *int) bool {
+	for i := 0; i < len(ns.cur); i++ {
+		insn := ns.prog.Inst[ns.cur[i]]
+		switch insn.Op {
+		case syntax.InstAlt:
+			ns.cur = append(ns.cur, insn.Out, insn.Arg)
+		case syntax.InstAltMatch:
+			if insn.MatchRune(r) {
+				ns.next = append(ns.next, insn.Out, insn.Arg)
+			}
+		case syntax.InstEmptyWidth:
+			ns.cur = append(ns.cur, insn.Out)
+		case syntax.InstMatch:
+			if last != nil {
+				*last = pos
+				if captures != nil {
+					captures[1] = pos
+				}
+			}
+		case syntax.InstFail:
+		case syntax.InstRune, syntax.InstRune1:
+			if insn.MatchRune(r) {
+				ns.next = append(ns.next, insn.Out)
+			}
+		case syntax.InstCapture, syntax.InstNop:
+			if captures != nil {
+				captures[insn.Arg] = pos
+			}
+			ns.cur = append(ns.cur, insn.Out)
+		case syntax.InstRuneAny, syntax.InstRuneAnyNotNL:
+			ns.next = append(ns.next, insn.Out)
+		}
+	}
+	ns.cur, ns.next = ns.next, ns.cur[:0]
+	return len(ns.cur) > 0
+}
+
+// expand runs epsilon transitions without consuming a rune (used at EOF).
+func (ns *nfaState) expand(pos int, captures []int, last *int) {
+	for i := 0; i < len(ns.cur); i++ {
+		insn := ns.prog.Inst[ns.cur[i]]
+		switch insn.Op {
+		case syntax.InstAlt:
+			ns.cur = append(ns.cur, insn.Out, insn.Arg)
+		case syntax.InstEmptyWidth:
+			ns.cur = append(ns.cur, insn.Out)
+		case syntax.InstMatch:
+			if last != nil {
+				*last = pos
+				if captures != nil {
+					captures[1] = pos
+				}
+			}
+		case syntax.InstCapture, syntax.InstNop:
+			if captures != nil {
+				captures[insn.Arg] = pos
+			}
+			ns.cur = append(ns.cur, insn.Out)
+		}
+	}
+}
+
+// RegexpScanner wraps an io.RuneScanner, gating reads through a greedy NFA.
+// When the next rune would kill all threads, it is unread and io.EOF is returned.
+type RegexpScanner struct {
+	r   io.RuneScanner
+	nfa nfaState
+
+	prev    []uint32 // nfa.cur snapshot for UnreadRune
+	hasPrev bool
+}
+
+// RuneScanner returns a RegexpScanner that reads from r.
+func (re *Regexp) RuneScanner(r io.RuneScanner) *RegexpScanner {
+	return &RegexpScanner{
+		r: r,
+		nfa: nfaState{
+			prog: re.prog,
+			cur:  []uint32{uint32(re.prog.Start)},
+		},
+	}
+}
+
+func (s *RegexpScanner) ReadRune() (rune, int, error) {
+	if len(s.nfa.cur) == 0 {
+		return 0, 0, io.EOF
+	}
+
+	r, w, err := s.r.ReadRune()
+	if err != nil {
+		return 0, 0, err
+	}
+
+	s.prev = append(s.prev[:0], s.nfa.cur...)
+
+	if !s.nfa.step(r, 0, nil, nil) {
+		s.r.UnreadRune() //nolint:errcheck
+		s.nfa.cur, s.prev = s.prev, s.nfa.cur
+		return 0, 0, io.EOF
+	}
+
+	s.hasPrev = true
+	return r, w, nil
+}
+
+func (s *RegexpScanner) UnreadRune() error {
+	if !s.hasPrev {
+		return fmt.Errorf("regexp scanner: no rune to unread")
+	}
+	if err := s.r.UnreadRune(); err != nil {
+		return err
+	}
+	s.nfa.cur, s.prev = s.prev, s.nfa.cur
+	s.hasPrev = false
+	return nil
+}
+
 // Accept accepts and returns the longest run of characters coming out of the
 // lexer stream that matches the regular expression, or returns an error if it
 // doesn't.
@@ -69,74 +195,28 @@ func (re *Regexp) Accept(l *Lexer) ([]string, error) {
 	var (
 		out  strings.Builder
 		err  error
-		last int
+		last = -1
 		pos  int
-		cur  []uint32
-		next []uint32
 		r    rune
 		w    int
+		ns   nfaState
 	)
 
 	out.WriteString(prefix)
 
 	captures := make([]int, re.prog.NumCap)
 
-	cur = append(cur, uint32(re.prog.Start))
-	last = -1
-	for len(cur) != 0 {
+	ns.prog = re.prog
+	ns.cur = append(ns.cur, uint32(re.prog.Start))
+
+	for len(ns.cur) != 0 {
 		r, w, err = l.ReadRune()
 		if err != nil {
-			// Finish execution of any non-advancing instructions before
-			// breaking out.
-			for i := 0; i < len(cur); i++ {
-				insn := re.prog.Inst[cur[i]]
-				switch insn.Op {
-				case syntax.InstAlt:
-					cur = append(cur, insn.Out)
-					cur = append(cur, insn.Arg)
-				case syntax.InstEmptyWidth:
-					cur = append(cur, insn.Out)
-				case syntax.InstMatch:
-					last = pos
-					captures[1] = last
-				case syntax.InstCapture, syntax.InstNop:
-					captures[insn.Arg] = pos
-					cur = append(cur, insn.Out)
-				}
-			}
+			ns.expand(pos, captures, &last)
 			break
 		}
 		out.WriteRune(r)
-
-		for i := 0; i < len(cur); i++ {
-			insn := re.prog.Inst[cur[i]]
-			switch insn.Op {
-			case syntax.InstAlt:
-				cur = append(cur, insn.Out)
-				cur = append(cur, insn.Arg)
-			case syntax.InstAltMatch:
-				if insn.MatchRune(r) {
-					next = append(next, insn.Out)
-					next = append(next, insn.Arg)
-				}
-			case syntax.InstEmptyWidth:
-				cur = append(cur, insn.Out)
-			case syntax.InstMatch:
-				last = pos
-				captures[1] = last
-			case syntax.InstFail:
-			case syntax.InstRune, syntax.InstRune1:
-				if insn.MatchRune(r) {
-					next = append(next, insn.Out)
-				}
-			case syntax.InstCapture, syntax.InstNop:
-				captures[insn.Arg] = pos
-				cur = append(cur, insn.Out)
-			case syntax.InstRuneAny, syntax.InstRuneAnyNotNL:
-				next = append(next, insn.Out)
-			}
-		}
-		cur, next = next, cur[:0]
+		ns.step(r, pos, captures, &last)
 		pos += w
 	}
 
@@ -165,4 +245,91 @@ func (re *Regexp) Accept(l *Lexer) ([]string, error) {
 		results[i] = s[len(prefix)+captures[2*i] : len(prefix)+captures[2*i+1]]
 	}
 	return results, nil
+}
+
+// StepFunc is one state in a character-by-character recognition machine.
+// It consumes one rune and returns (next state, is-accepting).
+// A nil next means the machine is dead.
+type StepFunc func(rune) (StepFunc, bool)
+
+// RegexpMachine runs a compiled Regexp as a StepFunc-compatible NFA.
+type RegexpMachine struct {
+	ns       nfaState
+	peek     nfaState // epsilon-expand scratch for eager accept detection
+	pos      int
+	last     int   // byte offset of last accepted position (-1 = none)
+	captures []int // [lo, hi) byte offset pairs
+}
+
+// NewMachine returns a fresh RegexpMachine ready to step through input.
+func (re *Regexp) NewMachine() *RegexpMachine {
+	caps := make([]int, re.prog.NumCap)
+	for i := range caps {
+		caps[i] = -1
+	}
+	m := &RegexpMachine{
+		ns:       nfaState{prog: re.prog, cur: []uint32{uint32(re.prog.Start)}},
+		peek:     nfaState{prog: re.prog},
+		last:     -1,
+		captures: caps,
+	}
+	// Eagerly detect acceptance of the empty string.
+	m.peek.cur = append(m.peek.cur[:0], m.ns.cur...)
+	m.peek.expand(0, m.captures, &m.last)
+	return m
+}
+
+// Reset clears the machine state for reuse, keeping allocated buffers.
+func (m *RegexpMachine) Reset() {
+	m.ns.cur = m.ns.cur[:0]
+	m.ns.cur = append(m.ns.cur, uint32(m.ns.prog.Start))
+	m.ns.next = m.ns.next[:0]
+	m.peek.cur = m.peek.cur[:0]
+	m.peek.next = m.peek.next[:0]
+	m.pos = 0
+	m.last = -1
+	for i := range m.captures {
+		m.captures[i] = -1
+	}
+	// Eagerly detect acceptance of the empty string.
+	m.peek.cur = append(m.peek.cur[:0], m.ns.cur...)
+	m.peek.expand(0, m.captures, &m.last)
+}
+
+// FullMatch reports whether the entire input fed so far is a match.
+func (m *RegexpMachine) FullMatch() bool {
+	return m.last >= 0 && m.last == m.pos
+}
+
+// Step advances the machine by one rune. A nil next means the machine is dead.
+func (m *RegexpMachine) Step(r rune) (StepFunc, bool) {
+	w := utf8.RuneLen(r)
+	if w < 1 {
+		w = 1
+	}
+	prevLast := m.last
+	alive := m.ns.step(r, m.pos, m.captures, &m.last)
+	m.pos += w
+	if alive {
+		// Expand on a copy so we detect acceptance eagerly without
+		// corrupting ns.cur for the next consuming step.
+		m.peek.cur = append(m.peek.cur[:0], m.ns.cur...)
+		m.peek.expand(m.pos, m.captures, &m.last)
+	}
+	if !alive {
+		return nil, m.last != prevLast
+	}
+	return m.Step, m.last != prevLast
+}
+
+// Captures returns the captured substrings from text.
+func (m *RegexpMachine) Captures(text string) []string {
+	groups := make([]string, len(m.captures)/2)
+	for i := range groups {
+		lo, hi := m.captures[2*i], m.captures[2*i+1]
+		if lo >= 0 && hi >= 0 && lo <= hi && hi <= len(text) {
+			groups[i] = text[lo:hi]
+		}
+	}
+	return groups
 }
