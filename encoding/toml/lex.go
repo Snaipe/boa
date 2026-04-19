@@ -6,6 +6,7 @@
 package toml
 
 import (
+	"context"
 	"fmt"
 	"go/constant"
 	"io"
@@ -428,8 +429,7 @@ func (state *lexerState) lexNumberOrDateOrKey(l *Lexer) StateFunc {
 				return l.Errorf("parsing '%v': invalid float", num)
 			}
 
-			// big.ParseFloat supports all cases we care about.
-			val, _, err := big.ParseFloat(num, 0, prec, big.ToNearestEven)
+			val, err := ParseBigFloat(context.Background(), strings.NewReader(num), prec, big.ToNearestEven)
 			if err != nil {
 				return l.Error(err)
 			}
@@ -443,9 +443,9 @@ func (state *lexerState) lexNumberOrDateOrKey(l *Lexer) StateFunc {
 				l.Emit(TokenNumber, constv)
 			}
 		default:
-			val, ok := new(big.Int).SetString(num, 0)
-			if !ok {
-				return l.Errorf("parsing '%v': invalid integer", num)
+			val, err := ParseBigInt(context.Background(), strings.NewReader(num), 0)
+			if err != nil {
+				return l.Error(err)
 			}
 			constv := constant.Make(val)
 			if constv.Kind() != constant.Int {

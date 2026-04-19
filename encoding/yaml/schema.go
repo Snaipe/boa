@@ -6,6 +6,7 @@
 package yaml
 
 import (
+	"context"
 	"fmt"
 	"go/constant"
 	"math"
@@ -343,8 +344,8 @@ func processInt(base Node, val TaggedValue) (Value, error) {
 		s := strings.TrimLeft(num, "+-")
 		result := new(big.Int)
 		for _, seg := range strings.Split(s, ":") {
-			component, ok := new(big.Int).SetString(seg, 10)
-			if !ok {
+			component, err := ParseBigInt(context.Background(), strings.NewReader(seg), 10)
+			if err != nil {
 				return nil, fmt.Errorf("parsing '%v': invalid sexagesimal integer component %q", num, seg)
 			}
 			result.Mul(result, big.NewInt(60))
@@ -360,8 +361,8 @@ func processInt(base Node, val TaggedValue) (Value, error) {
 		return &Number{Node: base, Value: constv}, nil
 	}
 
-	v, ok := new(big.Int).SetString(num, 0)
-	if !ok {
+	v, err := ParseBigInt(context.Background(), strings.NewReader(num), 0)
+	if err != nil {
 		return nil, fmt.Errorf("parsing '%v': invalid integer", num)
 	}
 	constv := constant.Make(v)
@@ -406,8 +407,8 @@ func processFloat(base Node, val TaggedValue) (Value, error) {
 		// Accumulate sexagesimal integer part.
 		intResult := new(big.Int)
 		for _, seg := range strings.Split(intPart, ":") {
-			component, ok := new(big.Int).SetString(seg, 10)
-			if !ok {
+			component, err := ParseBigInt(context.Background(), strings.NewReader(seg), 10)
+			if err != nil {
 				return nil, fmt.Errorf("parsing '%v': invalid sexagesimal float component %q", num, seg)
 			}
 			intResult.Mul(intResult, big.NewInt(60))
@@ -416,7 +417,7 @@ func processFloat(base Node, val TaggedValue) (Value, error) {
 		result := new(big.Float).SetPrec(prec).SetInt(intResult)
 
 		if fracStr != "" {
-			frac, _, err := big.ParseFloat(fracStr, 0, prec, big.ToNearestEven)
+			frac, err := ParseBigFloat(context.Background(), strings.NewReader(fracStr), prec, big.ToNearestEven)
 			if err != nil {
 				return nil, fmt.Errorf("parsing '%v': invalid sexagesimal float fraction: %w", num, err)
 			}
@@ -432,7 +433,7 @@ func processFloat(base Node, val TaggedValue) (Value, error) {
 		return &Number{Node: base, Value: constv}, nil
 	}
 
-	v, _, err := big.ParseFloat(num, 0, prec, big.ToNearestEven)
+	v, err := ParseBigFloat(context.Background(), strings.NewReader(num), prec, big.ToNearestEven)
 	if err != nil {
 		return nil, err
 	}

@@ -6,7 +6,7 @@
 package json5
 
 import (
-	"fmt"
+	"context"
 	"go/constant"
 	"io"
 	"math"
@@ -387,9 +387,9 @@ func (state *lexerState) lexHex(l *Lexer) StateFunc {
 	if err != nil {
 		return l.Error(err)
 	}
-	val, ok := new(big.Int).SetString(num, 16)
-	if !ok {
-		return l.Errorf("parsing %v: invalid hexadecimal integer", num)
+	val, err := ParseBigInt(context.Background(), strings.NewReader(num), 16)
+	if err != nil {
+		return l.Error(err)
 	}
 	l.Emit(TokenNumber, constant.Make(val))
 	return state.lex
@@ -411,16 +411,9 @@ func (state *lexerState) lexNumber(l *Lexer) StateFunc {
 	if strings.ContainsAny(num, "eE+-.") {
 		const prec = 512 // matches current implementation of go/constant
 
-		// big.ParseFloat supports all cases we care about. Extra features
-		// like hexadecimal float or number_spacing are disabled by filtering
-		// with AcceptUntil above.
-		val, _, err = big.ParseFloat(num, 10, prec, big.ToNearestEven)
+		val, err = ParseBigFloat(context.Background(), strings.NewReader(num), prec, big.ToNearestEven)
 	} else {
-		var ok bool
-		val, ok = new(big.Int).SetString(num, 10)
-		if !ok {
-			err = fmt.Errorf("parsing '%v': invalid integer", num)
-		}
+		val, err = ParseBigInt(context.Background(), strings.NewReader(num), 10)
 	}
 	if err != nil {
 		return l.Error(err)
