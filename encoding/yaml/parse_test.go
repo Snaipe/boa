@@ -7,6 +7,7 @@ package yaml
 
 import (
 	"bytes"
+	"context"
 	stdjson "encoding/json"
 	"errors"
 	"fmt"
@@ -84,9 +85,7 @@ func abs(components ...string) string {
 func runYAMLParserSuite(t *testing.T, dir string, schema *Schema, skip []string) {
 	t.Helper()
 	mkParser := func(r io.Reader) syntax.Parser {
-		p := newParser(r).(*parser)
-		p.schema = schema
-		return p
+		return newParser(context.Background(), r, schema)
 	}
 	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {

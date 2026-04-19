@@ -8,6 +8,7 @@ package syntax
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -140,6 +141,11 @@ type Lexer struct {
 	// The cursor position of the current rune.
 	Position Cursor
 
+	// Context is checked at the start of each token in Next().
+	// When cancelled, Next() returns a TokenError carrying ctx.Err().
+	// Must not be nil.
+	Context context.Context
+
 	init   StateFunc    // initial state
 	state  StateFunc    // current state
 	token  bytes.Buffer // current token
@@ -153,7 +159,7 @@ type Lexer struct {
 	pboff    int    // read offset into pushback
 }
 
-func NewLexer(input io.Reader, init StateFunc) *Lexer {
+func NewLexer(ctx context.Context, input io.Reader, init StateFunc) *Lexer {
 
 	rscan, ok := input.(io.RuneReader)
 	if !ok {
@@ -164,6 +170,7 @@ func NewLexer(input io.Reader, init StateFunc) *Lexer {
 		Input: rscan,
 		init:  init,
 	}
+	l.Context = ctx
 	l.Reset()
 	return &l
 }
@@ -180,6 +187,13 @@ func (l *Lexer) Reset() {
 func (l *Lexer) Next() Token {
 	for {
 		select {
+		case <-l.Context.Done():
+			return Token{
+				Type:  TokenError,
+				Value: &Error{Cursor: l.Position, Err: l.Context.Err()},
+				Start: l.Position,
+				End:   l.Position,
+			}
 		case token := <-l.tokens:
 			return token
 		default:

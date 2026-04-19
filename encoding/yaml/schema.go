@@ -25,7 +25,7 @@ type Schema struct {
 	name       string
 	shorthands map[string]string
 	resolvers  []resolver
-	processors map[string]func(Node, TaggedValue) (Value, error)
+	processors map[string]func(context.Context, Node, TaggedValue) (Value, error)
 
 	// Strict-mode restrictions applied via Option(). Each flag independently
 	// rejects one YAML feature at parse time.
@@ -104,7 +104,7 @@ func NewSchema(name string) *Schema {
 	schema := Schema{
 		name:       name,
 		shorthands: make(map[string]string),
-		processors: make(map[string]func(Node, TaggedValue) (Value, error)),
+		processors: make(map[string]func(context.Context, Node, TaggedValue) (Value, error)),
 	}
 	schema.Type("tag:yaml.org,2002:seq", "", schema.processSeq)
 	schema.Type("tag:yaml.org,2002:map", "", schema.processMap)
@@ -163,7 +163,7 @@ func (s *Schema) Clone() *Schema {
 		name:                s.name,
 		shorthands:          make(map[string]string, len(s.shorthands)),
 		resolvers:           make([]resolver, len(s.resolvers)),
-		processors:          make(map[string]func(Node, TaggedValue) (Value, error), len(s.processors)),
+		processors:          make(map[string]func(context.Context, Node, TaggedValue) (Value, error), len(s.processors)),
 		rejectExplicitTags:  s.rejectExplicitTags,
 		noAnchorsAliases:    s.noAnchorsAliases,
 		rejectFlowStyle:     s.rejectFlowStyle,
@@ -234,7 +234,7 @@ func RejectDuplicateKeys() SchemaOption {
 // is inserted before that one. This means the caller does not need to worry
 // about declaration order; a catch-all like `^.*$` (for !!str) will always
 // sort to the end regardless of when Type is called.
-func (schema *Schema) Type(tag, re string, processor func(Node, TaggedValue) (Value, error)) *Schema {
+func (schema *Schema) Type(tag, re string, processor func(context.Context, Node, TaggedValue) (Value, error)) *Schema {
 	if re != "" {
 		compiled := MustCompileRegexp("", re)
 		r := resolver{compiled, tag}
@@ -278,7 +278,7 @@ func (schema *Schema) resolveTag(tag string) (string, error) {
 
 // process resolves and processes a YAML scalar value into a typed Value.
 // base contains token annotations; val carries the tag and scalar text.
-func (schema *Schema) process(base Node, val TaggedValue) (Value, error) {
+func (schema *Schema) process(ctx context.Context, base Node, val TaggedValue) (Value, error) {
 	var err error
 	if val.Tag == "" {
 		val.Tag, err = schema.resolve(val.Scalar)
@@ -294,14 +294,14 @@ func (schema *Schema) process(base Node, val TaggedValue) (Value, error) {
 	if !ok {
 		return nil, fmt.Errorf("undefined tag %v", val.Tag)
 	}
-	return process(base, val)
+	return process(ctx, base, val)
 }
 
-func (schema *Schema) processSeq(base Node, val TaggedValue) (Value, error) {
+func (schema *Schema) processSeq(_ context.Context, base Node, val TaggedValue) (Value, error) {
 	return &List{Node: base}, nil
 }
 
-func (schema *Schema) processMap(base Node, val TaggedValue) (Value, error) {
+func (schema *Schema) processMap(_ context.Context, base Node, val TaggedValue) (Value, error) {
 	return &Map{Node: base}, nil
 }
 
@@ -315,15 +315,15 @@ type Merge struct {
 // IsMergeKey implements syntax.MergeKey.
 func (*Merge) IsMergeKey() {}
 
-func processMerge(base Node, val TaggedValue) (Value, error) {
+func processMerge(_ context.Context, base Node, val TaggedValue) (Value, error) {
 	return &Merge{Node: base}, nil
 }
 
-func processNil(base Node, val TaggedValue) (Value, error) {
+func processNil(_ context.Context, base Node, val TaggedValue) (Value, error) {
 	return &Nil{Node: base}, nil
 }
 
-func processBool(base Node, val TaggedValue) (Value, error) {
+func processBool(_ context.Context, base Node, val TaggedValue) (Value, error) {
 	switch val.Scalar {
 	case "y", "Y", "yes", "Yes", "YES", "true", "True", "TRUE", "on", "On", "ON":
 		return &Bool{Node: base, Value: true}, nil
@@ -334,7 +334,7 @@ func processBool(base Node, val TaggedValue) (Value, error) {
 	}
 }
 
-func processInt(base Node, val TaggedValue) (Value, error) {
+func processInt(ctx context.Context, base Node, val TaggedValue) (Value, error) {
 	num := val.Scalar
 
 	// Sexagesimal (base 60): e.g. "190:20:30" = 685230.
@@ -344,7 +344,7 @@ func processInt(base Node, val TaggedValue) (Value, error) {
 		s := strings.TrimLeft(num, "+-")
 		result := new(big.Int)
 		for _, seg := range strings.Split(s, ":") {
-			component, err := ParseBigInt(context.Background(), strings.NewReader(seg), 10)
+			component, err := ParseBigInt(ctx, strings.NewReader(seg), 10)
 			if err != nil {
 				return nil, fmt.Errorf("parsing '%v': invalid sexagesimal integer component %q", num, seg)
 			}
@@ -361,7 +361,7 @@ func processInt(base Node, val TaggedValue) (Value, error) {
 		return &Number{Node: base, Value: constv}, nil
 	}
 
-	v, err := ParseBigInt(context.Background(), strings.NewReader(num), 0)
+	v, err := ParseBigInt(ctx, strings.NewReader(num), 0)
 	if err != nil {
 		return nil, fmt.Errorf("parsing '%v': invalid integer", num)
 	}
@@ -372,7 +372,7 @@ func processInt(base Node, val TaggedValue) (Value, error) {
 	return &Number{Node: base, Value: constv}, nil
 }
 
-func processFloat(base Node, val TaggedValue) (Value, error) {
+func processFloat(ctx context.Context, base Node, val TaggedValue) (Value, error) {
 	const prec = 512 // matches current implementation of go/constant
 
 	num := val.Scalar
@@ -407,7 +407,7 @@ func processFloat(base Node, val TaggedValue) (Value, error) {
 		// Accumulate sexagesimal integer part.
 		intResult := new(big.Int)
 		for _, seg := range strings.Split(intPart, ":") {
-			component, err := ParseBigInt(context.Background(), strings.NewReader(seg), 10)
+			component, err := ParseBigInt(ctx, strings.NewReader(seg), 10)
 			if err != nil {
 				return nil, fmt.Errorf("parsing '%v': invalid sexagesimal float component %q", num, seg)
 			}
@@ -417,7 +417,7 @@ func processFloat(base Node, val TaggedValue) (Value, error) {
 		result := new(big.Float).SetPrec(prec).SetInt(intResult)
 
 		if fracStr != "" {
-			frac, err := ParseBigFloat(context.Background(), strings.NewReader(fracStr), prec, big.ToNearestEven)
+			frac, err := ParseBigFloat(ctx, strings.NewReader(fracStr), prec, big.ToNearestEven)
 			if err != nil {
 				return nil, fmt.Errorf("parsing '%v': invalid sexagesimal float fraction: %w", num, err)
 			}
@@ -433,7 +433,7 @@ func processFloat(base Node, val TaggedValue) (Value, error) {
 		return &Number{Node: base, Value: constv}, nil
 	}
 
-	v, err := ParseBigFloat(context.Background(), strings.NewReader(num), prec, big.ToNearestEven)
+	v, err := ParseBigFloat(ctx, strings.NewReader(num), prec, big.ToNearestEven)
 	if err != nil {
 		return nil, err
 	}
@@ -450,6 +450,6 @@ func processFloat(base Node, val TaggedValue) (Value, error) {
 	return &Number{Node: base, Value: numVal}, nil
 }
 
-func processStr(base Node, val TaggedValue) (Value, error) {
+func processStr(_ context.Context, base Node, val TaggedValue) (Value, error) {
 	return &String{Node: base, Value: val.Scalar}, nil
 }

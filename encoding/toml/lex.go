@@ -54,11 +54,11 @@ type lexerState struct {
 	expectKey bool
 }
 
-func newLexer(input io.Reader) *Lexer {
+func newLexer(ctx context.Context, input io.Reader) *Lexer {
 	state := lexerState{
 		expectKey: true,
 	}
-	return NewLexer(input, state.lex)
+	return NewLexer(ctx, input, state.lex)
 }
 
 func (state *lexerState) acceptNewline(l *Lexer) error {
@@ -429,7 +429,7 @@ func (state *lexerState) lexNumberOrDateOrKey(l *Lexer) StateFunc {
 				return l.Errorf("parsing '%v': invalid float", num)
 			}
 
-			val, err := ParseBigFloat(context.Background(), strings.NewReader(num), prec, big.ToNearestEven)
+			val, err := ParseBigFloat(l.Context, strings.NewReader(num), prec, big.ToNearestEven)
 			if err != nil {
 				return l.Error(err)
 			}
@@ -443,7 +443,7 @@ func (state *lexerState) lexNumberOrDateOrKey(l *Lexer) StateFunc {
 				l.Emit(TokenNumber, constv)
 			}
 		default:
-			val, err := ParseBigInt(context.Background(), strings.NewReader(num), 0)
+			val, err := ParseBigInt(l.Context, strings.NewReader(num), 0)
 			if err != nil {
 				return l.Error(err)
 			}

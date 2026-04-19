@@ -6,6 +6,7 @@
 package json5
 
 import (
+	"context"
 	"fmt"
 	"go/constant"
 	gotokens "go/token"
@@ -19,9 +20,9 @@ type parser struct {
 	prev  []Token
 }
 
-func newParser(in io.Reader) Parser {
+func newParser(ctx context.Context, in io.Reader) Parser {
 	p := parser{
-		lexer: newLexer(in),
+		lexer: newLexer(ctx, in),
 	}
 	return &p
 }

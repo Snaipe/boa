@@ -6,6 +6,7 @@
 package yaml
 
 import (
+	"context"
 	"io"
 	"strings"
 
@@ -123,12 +124,12 @@ func (state *lexerState) startScalar(l *Lexer) StateFunc {
 	return state.lexScalar(TokenScalar, mlfold|mlstrip, state.indent)
 }
 
-func newLexer(input io.Reader) (*Lexer, *lexerState) {
+func newLexer(ctx context.Context, input io.Reader) (*Lexer, *lexerState) {
 	state := lexerState{
 		newline: true,
 		indent:  -1, // document level: no parent indentation context
 	}
-	return NewLexer(input, state.lex), &state
+	return NewLexer(ctx, input, state.lex), &state
 }
 
 // Flow-collection indicators (,[]{}|>) terminate a tag suffix. Verbatim tags

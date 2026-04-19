@@ -6,6 +6,7 @@
 package yaml
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -30,6 +31,7 @@ type parser struct {
 	prev       []Token
 	anchors    map[string]Value
 	schema     *Schema
+	ctx        context.Context
 	flowDepth  int
 	eof        bool // set when the stream is exhausted
 
@@ -50,13 +52,14 @@ type parser struct {
 	docTagShorthands map[string]string
 }
 
-func newParser(in io.Reader) Parser {
-	lexer, lexerState := newLexer(in)
+func newParser(ctx context.Context, in io.Reader, schema *Schema) Parser {
+	lexer, lexerState := newLexer(ctx, in)
 	return &parser{
 		lexer:            lexer,
 		lexerState:       lexerState,
 		anchors:          make(map[string]Value),
-		schema:           YAML1_2,
+		schema:           schema,
+		ctx:              ctx,
 		flowMinIndent:    -1,
 		docTagShorthands: make(map[string]string),
 	}
@@ -1259,7 +1262,7 @@ func (p *parser) ResolveScalar(tok Token, leading []Token, tag string) Value {
 		tag = "!!str"
 	}
 	tv := TaggedValue{Tag: tag, Scalar: scalar}
-	val, err := p.schema.process(base, tv)
+	val, err := p.schema.process(p.ctx, base, tv)
 	if err != nil {
 		return &String{Node: base, Value: scalar}
 	}
@@ -1286,7 +1289,7 @@ func (p *parser) resolveTaggedEmpty(tag string, leading []Token) Value {
 	}
 	base := Node{Tokens: leading}
 	tv := TaggedValue{Tag: tag, Scalar: ""}
-	val, err := p.schema.process(base, tv)
+	val, err := p.schema.process(p.ctx, base, tv)
 	if err != nil {
 		return &String{Node: base, Value: ""}
 	}

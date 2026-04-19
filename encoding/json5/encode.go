@@ -7,6 +7,7 @@ package json5
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -156,7 +157,7 @@ func (m *marshaler) MarshalValue(v reflect.Value) (bool, error) {
 			return false, err
 		}
 
-		node, err := newParser(bytes.NewReader(txt)).Parse()
+		node, err := newParser(context.Background(), bytes.NewReader(txt)).Parse()
 		if err != nil {
 			return false, fmt.Errorf("json.Marshaler returned invalid JSON: %w", err)
 		}
@@ -243,7 +244,7 @@ func (m *marshaler) Stringify(v reflect.Value) (string, bool, error) {
 			return "", false, err
 		}
 
-		node, err := newParser(bytes.NewReader(txt)).Parse()
+		node, err := newParser(context.Background(), bytes.NewReader(txt)).Parse()
 		if err != nil {
 			return "", false, fmt.Errorf("json.Marshaler returned invalid JSON: %w", err)
 		}

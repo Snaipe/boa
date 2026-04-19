@@ -6,6 +6,7 @@
 package toml
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -19,9 +20,9 @@ type parser struct {
 	prev  []Token
 }
 
-func newParser(in io.Reader) Parser {
+func newParser(ctx context.Context, in io.Reader) Parser {
 	p := parser{
-		lexer: newLexer(in),
+		lexer: newLexer(ctx, in),
 	}
 	return &p
 }

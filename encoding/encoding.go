@@ -6,6 +6,7 @@
 package encoding
 
 import (
+	"context"
 	"encoding"
 	"fmt"
 	"io"
@@ -81,10 +82,21 @@ type DecoderOptions struct {
 	AutomaticEnv bool
 	EnvPrefix    string
 	LookupEnv    func(string) (string, bool)
+
+	// Context, if non-nil, scopes the decoding operation. When the
+	// context is cancelled or times out, the decoder returns ctx.Err().
+	Context context.Context
 }
 
 // DecoderOption represents an option common to all decoders in boa.
 type DecoderOption func(*DecoderOptions)
+
+// WithContext returns a DecoderOption that scopes the decoding operation
+// to ctx. If the context is cancelled or times out, the decoder returns
+// ctx.Err().
+func WithContext(ctx context.Context) DecoderOption {
+	return func(o *DecoderOptions) { o.Context = ctx }
+}
 
 // StatableReader is a reader that can be Stat()-ed.
 type StatableReader interface {

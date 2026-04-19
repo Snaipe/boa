@@ -7,6 +7,7 @@ package json5
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -57,7 +58,7 @@ func TestJSON5StandardSuite(t *testing.T) {
 
 			switch ext {
 			case ".json", ".json5":
-				node, err := newParser(bytes.NewReader(txt)).Parse()
+				node, err := newParser(context.Background(), bytes.NewReader(txt)).Parse()
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -107,7 +108,7 @@ func TestJSON5StandardSuite(t *testing.T) {
 				}
 
 			case ".js", ".txt":
-				node, err := newParser(bytes.NewReader(txt)).Parse()
+				node, err := newParser(context.Background(), bytes.NewReader(txt)).Parse()
 				if err != nil {
 					t.Log(err)
 				} else {
@@ -155,7 +156,7 @@ func BenchmarkStandardSuite(b *testing.B) {
 			}
 
 			for i := 0; i < b.N; i++ {
-				_, err := newParser(bytes.NewReader(txt)).Parse()
+				_, err := newParser(context.Background(), bytes.NewReader(txt)).Parse()
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -190,6 +191,6 @@ func FuzzParser(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, txt []byte) {
-		newParser(bytes.NewReader(txt)).Parse()
+		newParser(context.Background(), bytes.NewReader(txt)).Parse()
 	})
 }

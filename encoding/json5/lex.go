@@ -46,11 +46,11 @@ type lexerState struct {
 	blankLine bool
 }
 
-func newLexer(input io.Reader) *Lexer {
+func newLexer(ctx context.Context, input io.Reader) *Lexer {
 	state := lexerState{
 		blankLine: true,
 	}
-	return NewLexer(input, state.lex)
+	return NewLexer(ctx, input, state.lex)
 }
 
 func (state *lexerState) lex(l *Lexer) StateFunc {
@@ -387,7 +387,7 @@ func (state *lexerState) lexHex(l *Lexer) StateFunc {
 	if err != nil {
 		return l.Error(err)
 	}
-	val, err := ParseBigInt(context.Background(), strings.NewReader(num), 16)
+	val, err := ParseBigInt(l.Context, strings.NewReader(num), 16)
 	if err != nil {
 		return l.Error(err)
 	}
@@ -411,9 +411,9 @@ func (state *lexerState) lexNumber(l *Lexer) StateFunc {
 	if strings.ContainsAny(num, "eE+-.") {
 		const prec = 512 // matches current implementation of go/constant
 
-		val, err = ParseBigFloat(context.Background(), strings.NewReader(num), prec, big.ToNearestEven)
+		val, err = ParseBigFloat(l.Context, strings.NewReader(num), prec, big.ToNearestEven)
 	} else {
-		val, err = ParseBigInt(context.Background(), strings.NewReader(num), 10)
+		val, err = ParseBigInt(l.Context, strings.NewReader(num), 10)
 	}
 	if err != nil {
 		return l.Error(err)

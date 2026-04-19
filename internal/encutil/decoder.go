@@ -6,6 +6,7 @@
 package encutil
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"io/fs"
@@ -18,7 +19,7 @@ import (
 )
 
 type UnmarshalerBase struct {
-	NewParser func(io.Reader) syntax.Parser
+	NewParser func(context.Context, io.Reader) syntax.Parser
 	Self      reflectutil.Unmarshaler
 
 	encoding.CommonOptions
@@ -37,8 +38,13 @@ func (unmarshaler *UnmarshalerBase) Decode(in io.Reader, v interface{}) error {
 		panic("decode: must pass in pointer value")
 	}
 
+	ctx := unmarshaler.DecoderOptions.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	decode := func(in io.Reader) error {
-		root, err := unmarshaler.NewParser(in).Parse()
+		root, err := unmarshaler.NewParser(ctx, in).Parse()
 		if err != nil {
 			if e, ok := err.(*syntax.Error); ok {
 				e.Filename = Name(in)
