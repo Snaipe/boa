@@ -26,7 +26,7 @@ type cancelAfterCtx struct {
 }
 
 func (*cancelAfterCtx) Deadline() (time.Time, bool)   { return time.Time{}, false }
-func (*cancelAfterCtx) Done() <-chan struct{}          { return nil }
+func (*cancelAfterCtx) Done() <-chan struct{}         { return nil }
 func (*cancelAfterCtx) Value(interface{}) interface{} { return nil }
 
 func (c *cancelAfterCtx) Err() error {
