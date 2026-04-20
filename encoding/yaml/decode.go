@@ -172,15 +172,15 @@ type decoder struct {
 func NewDecoder(rd io.Reader) encoding.Decoder {
 	var decoder decoder
 	decoder.in = rd
-	decoder.unmarshaler.NewParser = func(ctx context.Context, in io.Reader) Parser {
-		return newParser(ctx, in, decoder.unmarshaler.schema)
-	}
 	decoder.unmarshaler.Self = &decoder.unmarshaler
 	decoder.unmarshaler.Extensions = []string{".yaml", ".yml"}
 
 	// Defaults
 	decoder.unmarshaler.NamingConvention = encoding.KebabCase
 	decoder.unmarshaler.schema = DefaultSchema
+	decoder.unmarshaler.NewParser = func(ctx context.Context, in io.Reader) Parser {
+		return newParser(ctx, in, decoder.unmarshaler.schema)
+	}
 	return &decoder
 }
 
