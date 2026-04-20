@@ -53,13 +53,11 @@ var (
 	StrictYAML = NewSchema("StrictYAML").
 			Tag("!!", "tag:yaml.org,2002:").
 			Type("tag:yaml.org,2002:str", `^.*$`, processStr).
-			Option(
-				RejectExplicitTags(),
-				NoAnchorsOrAliases(),
-				RejectFlowStyle(),
-				EmptyScalarsAsStrings(),
-				RejectDuplicateKeys(),
-			)
+			RejectExplicitTags().
+			NoAnchorsOrAliases().
+			RejectFlowStyle().
+			EmptyScalarsAsStrings().
+			RejectDuplicateKeys()
 
 	Failsafe = NewSchema("Failsafe").
 			Tag("!!", "tag:yaml.org,2002:").
@@ -192,48 +190,41 @@ func (s *Schema) Clone() *Schema {
 	return dup
 }
 
-// SchemaOption is a functional option that modifies a Schema.
-// Use Option to apply one or more options to a schema.
-type SchemaOption func(*Schema)
-
-// Option applies opts to s and returns s, enabling builder-style chaining.
-func (s *Schema) Option(opts ...SchemaOption) *Schema {
-	for _, opt := range opts {
-		opt(s)
-	}
+// RejectExplicitTags causes the parser to reject any explicit YAML tag
+// (e.g. !!int or !foo). It returns s for builder-style chaining.
+func (s *Schema) RejectExplicitTags() *Schema {
+	s.rejectExplicitTags = true
 	return s
 }
 
-// RejectExplicitTags returns a SchemaOption that causes the parser to reject
-// any explicit YAML tag (e.g. !!int or !foo).
-func RejectExplicitTags() SchemaOption {
-	return func(s *Schema) { s.rejectExplicitTags = true }
+// NoAnchorsOrAliases causes the parser to reject both anchor definitions
+// (&name) and alias references (*name). Anchors and aliases always come in
+// pairs, so there is no meaningful use-case for allowing one without the
+// other. It returns s for builder-style chaining.
+func (s *Schema) NoAnchorsOrAliases() *Schema {
+	s.noAnchorsAliases = true
+	return s
 }
 
-// NoAnchorsOrAliases returns a SchemaOption that causes the parser to reject
-// both anchor definitions (&name) and alias references (*name). Anchors and
-// aliases always come in pairs, so there is no meaningful use-case for allowing
-// one without the other.
-func NoAnchorsOrAliases() SchemaOption {
-	return func(s *Schema) { s.noAnchorsAliases = true }
+// RejectFlowStyle causes the parser to reject flow-style mappings ({...})
+// and sequences ([...]). It returns s for builder-style chaining.
+func (s *Schema) RejectFlowStyle() *Schema {
+	s.rejectFlowStyle = true
+	return s
 }
 
-// RejectFlowStyle returns a SchemaOption that causes the parser to reject
-// flow-style mappings ({...}) and sequences ([...]).
-func RejectFlowStyle() SchemaOption {
-	return func(s *Schema) { s.rejectFlowStyle = true }
+// EmptyScalarsAsStrings causes absent or empty scalar values to decode as
+// empty strings instead of nil. It returns s for builder-style chaining.
+func (s *Schema) EmptyScalarsAsStrings() *Schema {
+	s.emptyScalarIsString = true
+	return s
 }
 
-// EmptyScalarsAsStrings returns a SchemaOption that causes absent or empty
-// scalar values to decode as empty strings instead of nil.
-func EmptyScalarsAsStrings() SchemaOption {
-	return func(s *Schema) { s.emptyScalarIsString = true }
-}
-
-// RejectDuplicateKeys returns a SchemaOption that causes the parser to reject
-// mapping nodes that contain duplicate string keys.
-func RejectDuplicateKeys() SchemaOption {
-	return func(s *Schema) { s.rejectDuplicateKeys = true }
+// RejectDuplicateKeys causes the parser to reject mapping nodes that contain
+// duplicate string keys. It returns s for builder-style chaining.
+func (s *Schema) RejectDuplicateKeys() *Schema {
+	s.rejectDuplicateKeys = true
+	return s
 }
 
 // Type registers a type resolver for the given YAML tag. re is a regexp that
