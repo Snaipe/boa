@@ -358,7 +358,7 @@ func processInt(ctx context.Context, base Node, val TaggedValue) (Value, error) 
 		for _, seg := range strings.Split(s, ":") {
 			component, err := ParseBigInt(ctx, strings.NewReader(seg), 10)
 			if err != nil {
-				return nil, fmt.Errorf("parsing '%v': invalid sexagesimal integer component %q", num, seg)
+				return nil, err
 			}
 			result.Mul(result, big.NewInt(60))
 			result.Add(result, component)
@@ -373,9 +373,13 @@ func processInt(ctx context.Context, base Node, val TaggedValue) (Value, error) 
 		return &Number{Node: base, Value: constv}, nil
 	}
 
-	v, err := ParseBigInt(ctx, strings.NewReader(num), 0)
+	r := strings.NewReader(num)
+	v, err := ParseBigInt(ctx, r, 0)
 	if err != nil {
-		return nil, fmt.Errorf("parsing '%v': invalid integer", num)
+		return nil, err
+	}
+	if r.Len() > 0 {
+		return nil, fmt.Errorf("invalid integer %q", num)
 	}
 	constv := constant.Make(v)
 	if constv.Kind() != constant.Int {
@@ -421,7 +425,7 @@ func processFloat(ctx context.Context, base Node, val TaggedValue) (Value, error
 		for _, seg := range strings.Split(intPart, ":") {
 			component, err := ParseBigInt(ctx, strings.NewReader(seg), 10)
 			if err != nil {
-				return nil, fmt.Errorf("parsing '%v': invalid sexagesimal float component %q", num, seg)
+				return nil, err
 			}
 			intResult.Mul(intResult, big.NewInt(60))
 			intResult.Add(intResult, component)
@@ -445,9 +449,13 @@ func processFloat(ctx context.Context, base Node, val TaggedValue) (Value, error
 		return &Number{Node: base, Value: constv}, nil
 	}
 
-	v, err := ParseBigFloat(ctx, strings.NewReader(num), prec, big.ToNearestEven)
+	fr := strings.NewReader(num)
+	v, err := ParseBigFloat(ctx, fr, prec, big.ToNearestEven)
 	if err != nil {
 		return nil, err
+	}
+	if fr.Len() > 0 {
+		return nil, fmt.Errorf("invalid float %q", num)
 	}
 	var numVal interface{}
 	if v.IsInf() {
