@@ -8,10 +8,8 @@ package toml
 import (
 	"context"
 	"fmt"
-	"go/constant"
 	"io"
 	"math"
-	"math/big"
 	"strings"
 	"time"
 	"unicode"
@@ -378,142 +376,23 @@ func (state *lexerState) lexString(l *Lexer, delim rune) StateFunc {
 	}
 }
 
-const (
-	rinteger  = `(?:(?:0(?:b[01][01_]*|o[0-7][0-7_]*|x[0-9a-fA-F][0-9a-fA-F_]*)?)|[-+]?[1-9][0-9_]*)`
-	rnumber   = `(` + rinteger + `|[-+]?(?:inf|nan|(?:0|[1-9][0-9_]*)(?:\.[0-9][0-9_]*)?(?:[eE][-+]?[0-9][0-9_]*)?))`
-	rdate     = `(?:[0-9]+\-[0-9]+\-[0-9]+)`
-	rtime     = `(?:[0-9]{2}\:[0-9]{2}\:[0-9]{2}(?:\.[0-9]+)?)`
-	rdatetime = `(` + rdate + `[ ]?|` + rtime + `|` + rdate + `[tT ]` + rtime + `(?:[zZ]|[zZ+-][0-9]{2}:[0-9]{2})?)`
-	rkey      = `([a-zA-Z0-9_-]+)`
-)
-
-var reNDK = MustCompileRegexp("number, date, or key", `(?m:^(?:`+rnumber+`|`+rdatetime+`|`+rkey+`))`)
-
 func (state *lexerState) lexNumberOrDateOrKey(l *Lexer) StateFunc {
-	ndk, err := reNDK.Accept(l)
-	if err != nil {
-		return l.Error(err)
-	}
-
-	// reject groups that do not take the length of the full match
-	for i := 1; i < len(ndk); i++ {
-		if len(ndk[i]) != len(ndk[0]) {
-			ndk[i] = ""
-		}
-	}
-
-	const (
-		// regexp group indices
-		number = 1 + iota
-		datetime
-		key
-	)
-
-	switch {
-	case ndk[number] != "":
-		num := ndk[number]
-		switch {
-		case strings.HasSuffix(num, "nan"):
-			l.Emit(TokenNumber, math.NaN())
-		case strings.HasSuffix(num, "inf"):
-			sign := 1
-			if num[0] == '-' {
-				sign = -1
-			}
-			l.Emit(TokenNumber, math.Inf(sign))
-		case (len(num) < 2 || num[0] != '0' || strings.IndexByte("obx", num[1]) == -1) && strings.ContainsAny(num[1:], "eE+-."):
-			const prec = 512 // matches current implementation of go/constant
-
-			if strings.ContainsAny(num, "obx") {
-				// should never happen; this was caught by
-				return l.Errorf("parsing '%v': invalid float", num)
-			}
-
-			val, err := ParseBigFloat(l.Context, strings.NewReader(num), prec, big.ToNearestEven)
-			if err != nil {
-				return l.Error(err)
-			}
-			if val.IsInf() {
-				l.Emit(TokenNumber, math.Inf(val.Sign()))
-			} else {
-				constv := constant.Make(val)
-				if constv.Kind() != constant.Float {
-					panic("created float constant is not float")
-				}
-				l.Emit(TokenNumber, constv)
-			}
-		default:
-			val, err := ParseBigInt(l.Context, strings.NewReader(num), 0)
-			if err != nil {
-				return l.Error(err)
-			}
-			constv := constant.Make(val)
-			if constv.Kind() != constant.Int {
-				panic("created int constant is not int")
-			}
-			l.Emit(TokenNumber, constv)
-		}
-	case ndk[datetime] != "":
-		datetime := ndk[datetime]
-
-		type layout struct {
-			layout  string
-			convert func(time.Time) interface{}
-		}
-
-		// normalize the date; everything to uppercase, replace space with T
-		datetime = strings.Map(func(r rune) rune {
-			if r == ' ' {
-				return 'T'
-			}
-			return unicode.ToUpper(r)
-		}, strings.TrimRight(datetime, " "))
-
-		// Try these layouts, in order.
-		layouts := []layout{
-			{"2006-01-02T15:04:05.999999999Z07:00", nil},                                                     // RFC3339
-			{"2006-01-02T15:04:05.999999999-07:00", nil},                                                     // RFC3339, with sign instead of Z
-			{"2006-01-02T15:04:05.999999999", func(t time.Time) interface{} { return MakeLocalDateTime(t) }}, // RFC3339, without timezone
-			{"2006-01-02", func(t time.Time) interface{} { return MakeLocalDate(t) }},                        // RFC3339, without time & timezone
-			{"15:04:05.999999999", func(t time.Time) interface{} { return MakeLocalTime(t) }},                // RFC3339, without date & timezone
-		}
-
-		var firsterr error
-		for _, lay := range layouts {
-			val, err := time.Parse(lay.layout, datetime)
-			if err != nil {
-				if firsterr == nil {
-					firsterr = err
-				}
-				continue
-			}
-			if lay.convert != nil {
-				switch out := lay.convert(val).(type) {
-				case LocalDateTime:
-					l.Emit(TokenDateTime, out)
-				case LocalDate:
-					l.Emit(TokenDateTime, out)
-				case LocalTime:
-					l.Emit(TokenDateTime, out)
-				default:
-					panic("unexpected time layout type")
-				}
-			} else {
-				l.Emit(TokenDateTime, val)
-			}
-			return state.lex
-		}
-		if firsterr == nil {
-			firsterr = fmt.Errorf("invalid datetime %s", datetime)
-		}
-		return l.Error(firsterr)
-	case ndk[key] != "":
-		l.Emit(TokenIdentifier, ndk[key])
-	default:
-		panic("no groups matched but Regexp.Accept did not return an error")
-	}
-
-	return state.lex
+	// Order matters: on equal-length matches, the first machine wins.
+	// In particular, decIntRe must precede keyRe so that bare integers
+	// (e.g. "42") are lexed as numbers, not keys.
+	return state.runNDK(l, []machine{
+		{re: floatRe, emit: floatEmit},
+		{re: specialRe, emit: specialEmit},
+		{re: hexIntRe, emit: prefixIntEmit(16)},
+		{re: octIntRe, emit: prefixIntEmit(8)},
+		{re: binIntRe, emit: prefixIntEmit(2)},
+		{re: decIntRe, emit: decIntEmit},
+		{re: dtOffsetDateTimeRe, emit: dtOffsetDateTimeEmit},
+		{re: dtLocalDateTimeRe, emit: dtLocalDateTimeEmit},
+		{re: dtDateRe, emit: dtDateEmit},
+		{re: dtTimeRe, emit: dtTimeEmit},
+		{re: keyRe, emit: keyEmit},
+	})
 }
 
 func (state *lexerState) lexIdentifier(l *Lexer) StateFunc {

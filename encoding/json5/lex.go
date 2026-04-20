@@ -381,13 +381,7 @@ func (state *lexerState) lexBlockComment(l *Lexer) StateFunc {
 }
 
 func (state *lexerState) lexHex(l *Lexer) StateFunc {
-	num, err := l.AcceptWhile(func(r rune) bool {
-		return unicode.In(r, unicode.L, unicode.N)
-	})
-	if err != nil {
-		return l.Error(err)
-	}
-	val, err := ParseBigInt(l.Context, strings.NewReader(num), 16)
+	val, err := ParseBigInt(l.Context, l, 16)
 	if err != nil {
 		return l.Error(err)
 	}
@@ -396,25 +390,9 @@ func (state *lexerState) lexHex(l *Lexer) StateFunc {
 }
 
 func (state *lexerState) lexNumber(l *Lexer) StateFunc {
-	num, err := l.AcceptWhile(func(r rune) bool {
-		return strings.IndexRune("0123456789eE+-.", r) != -1
-	})
-	if err != nil {
-		return l.Error(err)
-	}
-	err = nil
-	if num == "" {
-		num = "0"
-	}
+	const prec = 512 // matches current implementation of go/constant
 
-	var val interface{}
-	if strings.ContainsAny(num, "eE+-.") {
-		const prec = 512 // matches current implementation of go/constant
-
-		val, err = ParseBigFloat(l.Context, strings.NewReader(num), prec, big.ToNearestEven)
-	} else {
-		val, err = ParseBigInt(l.Context, strings.NewReader(num), 10)
-	}
+	val, err := ParseBigNumber(l.Context, l, prec, big.ToNearestEven)
 	if err != nil {
 		return l.Error(err)
 	}
