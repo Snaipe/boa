@@ -270,77 +270,104 @@ func readExponent(r io.RuneScanner) (string, error) {
 	return digits.String(), nil
 }
 
-// ParseBigFloat parses a decimal floating-point number from r at the requested
-// precision, truncating the mantissa to significant digits before conversion.
-// Reading stops at the first non-float rune, which is unread. Ctx is checked
-// between chunks for cancellation.
-func ParseBigFloat(ctx context.Context, r io.RuneScanner, prec uint, mode big.RoundingMode) (*big.Float, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	newFloat := func() *big.Float {
-		return new(big.Float).SetPrec(prec).SetMode(mode)
-	}
-	var neg bool
+// rawNumber holds the parsed-but-unconverted state of a decimal number literal.
+type rawNumber struct {
+	neg       bool
+	rawDigits bytes.Buffer // concatenated integer+fractional digits, leading zeros stripped
+	effExp    int64        // effective exponent = -fracDigits + explicitExponent
+}
+
+// readNumber reads a decimal number from r: optional sign, integer digits,
+// optional fractional part, optional exponent. It strips leading zeros from the
+// digit buffer and computes the effective exponent. The first non-number rune is
+// unread.
+func readNumber(r io.RuneScanner) (rawNumber, error) {
+	var rn rawNumber
+
 	c, _, err := r.ReadRune()
 	if err == io.EOF {
-		return nil, fmt.Errorf("invalid decimal float: empty mantissa: %w", ErrSyntax)
+		return rn, fmt.Errorf("empty mantissa: %w", ErrSyntax)
 	}
 	if err != nil {
-		return nil, err
+		return rn, err
 	}
 	if c == '+' || c == '-' {
-		neg = c == '-'
+		rn.neg = c == '-'
 	} else {
 		if uerr := r.UnreadRune(); uerr != nil {
-			return nil, uerr
+			return rn, uerr
 		}
 	}
 
-	var rawDigits bytes.Buffer
-	intDigits, intTerm, err := readDigitsInto(r, &rawDigits)
+	intDigits, intTerm, err := readDigitsInto(r, &rn.rawDigits)
 	if err != nil {
-		return nil, err
+		return rn, err
 	}
 
 	var fracDigits int
 	mantissaTerm := intTerm
 	if intTerm == '.' {
 		var fracTerm rune
-		fracDigits, fracTerm, err = readDigitsInto(r, &rawDigits)
+		fracDigits, fracTerm, err = readDigitsInto(r, &rn.rawDigits)
 		if err != nil {
-			return nil, err
+			return rn, err
 		}
 		mantissaTerm = fracTerm
 	}
 
 	if intDigits+fracDigits == 0 {
-		return nil, fmt.Errorf("invalid decimal float: empty mantissa: %w", ErrSyntax)
+		return rn, fmt.Errorf("empty mantissa: %w", ErrSyntax)
 	}
 
 	var expStr string
 	if mantissaTerm == 'e' || mantissaTerm == 'E' {
 		expStr, err = readExponent(r)
 		if err != nil {
-			return nil, err
+			return rn, err
 		}
 	} else if mantissaTerm != 0 {
 		if uerr := r.UnreadRune(); uerr != nil {
-			return nil, uerr
+			return rn, uerr
 		}
 	}
 
 	// Skip leading zeros.
-	b := rawDigits.Bytes()
+	b := rn.rawDigits.Bytes()
 	var nzeros int
 	for nzeros < len(b) && b[nzeros] == '0' {
 		nzeros++
 	}
-	rawDigits.Next(nzeros)
+	rn.rawDigits.Next(nzeros)
 
-	if rawDigits.Len() == 0 {
+	rn.effExp = -int64(fracDigits)
+	if expStr != "" {
+		exp, err := strconv.ParseInt(expStr, 10, 64)
+		if err != nil {
+			return rn, fmt.Errorf("invalid exponent %q: %w", expStr, ErrRange)
+		}
+		sum := rn.effExp + exp
+		if (exp > 0 && sum < rn.effExp) || (exp < 0 && sum > rn.effExp) {
+			return rn, fmt.Errorf("effective exponent overflow: %w", ErrRange)
+		}
+		rn.effExp = sum
+	}
+	if int64(int(rn.effExp)) != rn.effExp {
+		return rn, fmt.Errorf("effective exponent %d out of range: %w", rn.effExp, ErrRange)
+	}
+
+	return rn, nil
+}
+
+// convertFloat converts a rawNumber to *big.Float at the given precision,
+// truncating the mantissa to significant digits before scaling.
+func convertFloat(ctx context.Context, rn *rawNumber, prec uint, mode big.RoundingMode) (*big.Float, error) {
+	newFloat := func() *big.Float {
+		return new(big.Float).SetPrec(prec).SetMode(mode)
+	}
+
+	if rn.rawDigits.Len() == 0 {
 		f := newFloat()
-		if neg {
+		if rn.neg {
 			f.Neg(f)
 		}
 		return f, nil
@@ -349,34 +376,20 @@ func ParseBigFloat(ctx context.Context, r io.RuneScanner, prec uint, mode big.Ro
 	// Cap to the number of significant decimal digits that can affect the
 	// rounded result at prec bits. 1233/4096 ~ log10(2).
 	var mantissaTrim int
-	if maxSigDigits := (int(prec)*1233)>>12 + 4; rawDigits.Len() > maxSigDigits {
-		mantissaTrim = rawDigits.Len() - maxSigDigits
-		rawDigits.Truncate(maxSigDigits)
+	if maxSigDigits := (int(prec)*1233)>>12 + 4; rn.rawDigits.Len() > maxSigDigits {
+		mantissaTrim = rn.rawDigits.Len() - maxSigDigits
+		rn.rawDigits.Truncate(maxSigDigits)
 	}
 
-	mantissaInt, err := parseBigInt(ctx, &rawDigits, 10)
+	mantissaInt, err := parseBigInt(ctx, &rn.rawDigits, 10)
 	if err != nil {
 		return nil, fmt.Errorf("invalid decimal float mantissa: %w", err)
 	}
 
-	effExp := int64(mantissaTrim) - int64(fracDigits)
-	if expStr != "" {
-		exp, err := strconv.ParseInt(expStr, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("invalid exponent %q: %w", expStr, ErrRange)
-		}
-		sum := effExp + exp
-		if (exp > 0 && sum < effExp) || (exp < 0 && sum > effExp) {
-			return nil, fmt.Errorf("effective exponent overflow: %w", ErrRange)
-		}
-		effExp = sum
-	}
-	if int64(int(effExp)) != effExp {
-		return nil, fmt.Errorf("effective exponent %d out of range: %w", effExp, ErrRange)
-	}
+	effExp := rn.effExp + int64(mantissaTrim)
 
 	f := newFloat().SetInt(mantissaInt)
-	if neg {
+	if rn.neg {
 		f.Neg(f)
 	}
 	if effExp == 0 {
@@ -412,4 +425,84 @@ func ParseBigFloat(ctx context.Context, r io.RuneScanner, prec uint, mode big.Ro
 	}
 	f.SetMantExp(f, int(effExp))
 	return f, nil
+}
+
+// ParseBigNumber parses a decimal number from r, returning *big.Int when the
+// value is an exact integer (effective exponent >= 0) or *big.Float otherwise.
+// prec and mode govern the float path only; integers are exact. Reading stops
+// at the first non-number rune, which is unread. Ctx is checked between chunks
+// for cancellation.
+func ParseBigNumber(ctx context.Context, r io.RuneScanner, prec uint, mode big.RoundingMode) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	rn, err := readNumber(r)
+	if err != nil {
+		return nil, err
+	}
+
+	if rn.rawDigits.Len() == 0 {
+		if rn.effExp >= 0 && !rn.neg {
+			return new(big.Int), nil
+		}
+		f := new(big.Float).SetPrec(prec).SetMode(mode)
+		if rn.neg {
+			f.Neg(f)
+		}
+		return f, nil
+	}
+
+	if rn.effExp >= 0 {
+		// Integer path: parse all digits exactly (no mantissaTrim).
+		mantissa, err := parseBigInt(ctx, &rn.rawDigits, 10)
+		if err != nil {
+			return nil, fmt.Errorf("invalid mantissa: %w", err)
+		}
+		if rn.effExp > 0 {
+			// mantissa * 10^effExp via squaring.
+			scale := new(big.Int).SetInt64(1)
+			sq := new(big.Int).SetInt64(10)
+			for rem := uint64(rn.effExp); rem > 0; rem >>= 1 {
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
+				if rem&1 != 0 {
+					scale.Mul(scale, sq)
+				}
+				if rem > 1 {
+					sq.Mul(sq, sq)
+				}
+			}
+			mantissa.Mul(mantissa, scale)
+		}
+		if rn.neg {
+			mantissa.Neg(mantissa)
+		}
+		return mantissa, nil
+	}
+
+	// Float path: bounded-precision conversion via convertFloat.
+	f, err := convertFloat(ctx, &rn, prec, mode)
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
+// ParseBigFloat parses a decimal floating-point number from r at the requested
+// precision, truncating the mantissa to significant digits before conversion.
+// Reading stops at the first non-float rune, which is unread. Ctx is checked
+// between chunks for cancellation.
+func ParseBigFloat(ctx context.Context, r io.RuneScanner, prec uint, mode big.RoundingMode) (*big.Float, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	rn, err := readNumber(r)
+	if err != nil {
+		return nil, err
+	}
+
+	return convertFloat(ctx, &rn, prec, mode)
 }
