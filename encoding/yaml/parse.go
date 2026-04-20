@@ -54,6 +54,7 @@ type parser struct {
 
 func newParser(ctx context.Context, in io.Reader, schema *Schema) Parser {
 	lexer, lexerState := newLexer(ctx, in)
+	lexerState.resolverMachines, lexerState.resolverTags = schema.newResolverMachines()
 	return &parser{
 		lexer:            lexer,
 		lexerState:       lexerState,
@@ -1245,13 +1246,13 @@ func (p *parser) FlowMap(open Token, leading []Token) *Map {
 func (p *parser) ResolveScalar(tok Token, leading []Token, tag string) Value {
 	base := Node{Tokens: append(leading, tok), Position: tok.Start}
 	var scalar string
-	switch tok.Type {
-	case TokenScalar, TokenString:
-		if s, ok := tok.Value.(string); ok {
-			scalar = s
-		} else {
-			scalar = tok.Raw
-		}
+	var resolvedTag string
+	switch v := tok.Value.(type) {
+	case resolvedScalar:
+		scalar = v.Value
+		resolvedTag = v.Tag
+	case string:
+		scalar = v
 	default:
 		scalar = tok.Raw
 	}
@@ -1260,6 +1261,8 @@ func (p *parser) ResolveScalar(tok Token, leading []Token, tag string) Value {
 	// Force !!str unless the caller already supplied an explicit override tag.
 	if tag == "" && tok.Type == TokenString {
 		tag = "!!str"
+	} else if tag == "" && resolvedTag != "" {
+		tag = resolvedTag
 	}
 	tv := TaggedValue{Tag: tag, Scalar: scalar}
 	val, err := p.schema.process(p.ctx, base, tv)

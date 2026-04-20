@@ -150,6 +150,18 @@ func (schema *Schema) resolve(scalar string) (string, error) {
 	return "", fmt.Errorf("unresolvable scalar %q: scalar does not match any known tag in %s schema", scalar, schema.name)
 }
 
+// newResolverMachines creates a set of RegexpMachine instances from the
+// schema's resolvers, for lockstep NFA execution at lex time.
+func (schema *Schema) newResolverMachines() ([]*RegexpMachine, []string) {
+	machines := make([]*RegexpMachine, len(schema.resolvers))
+	tags := make([]string, len(schema.resolvers))
+	for i, r := range schema.resolvers {
+		machines[i] = r.regexp.NewMachine()
+		tags[i] = r.tag
+	}
+	return machines, tags
+}
+
 func (schema *Schema) Tag(alias, tag string) *Schema {
 	schema.parseShorthand(alias) // validates shorthand
 	schema.shorthands[alias] = tag

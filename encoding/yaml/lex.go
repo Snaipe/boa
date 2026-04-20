@@ -115,6 +115,12 @@ type lexerState struct {
 	// or a newline. Used to validate that '#' comment markers are preceded by
 	// whitespace per YAML 1.2 spec.
 	prevTokenWasWS bool
+
+	// Resolver machines for lex-time tag resolution. Pre-allocated by the
+	// parser from the schema's resolvers; stepped in lockstep on each plain
+	// scalar after chompScalar produces the final string.
+	resolverMachines []*RegexpMachine
+	resolverTags     []string
 }
 
 // startScalar records the current token column as the key column and
@@ -762,6 +768,37 @@ func chompScalar(in string, flags, indent int) string {
 	return result
 }
 
+// resolvedScalar carries a plain scalar's chomped value together with its
+// pre-resolved tag (determined at lex time by lockstep NFA execution).
+type resolvedScalar struct {
+	Value string
+	Tag   string
+}
+
+// resolveScalarTag runs all resolver machines in lockstep on scalar and
+// returns the tag of the first fully-matching machine (in priority order),
+// or "" if none match.
+func (state *lexerState) resolveScalarTag(scalar string) string {
+	machines := state.resolverMachines
+	if len(machines) == 0 {
+		return ""
+	}
+	for _, m := range machines {
+		m.Reset()
+	}
+	for _, r := range scalar {
+		for _, m := range machines {
+			m.Step(r)
+		}
+	}
+	for i, m := range machines {
+		if m.FullMatch() {
+			return state.resolverTags[i]
+		}
+	}
+	return ""
+}
+
 func (state *lexerState) lexScalar(toktype TokenType, flags, indent int) StateFunc {
 	if state.FlowMode {
 		indent = -1
@@ -794,6 +831,12 @@ func (state *lexerState) lexScalar(toktype TokenType, flags, indent int) StateFu
 			}
 			scalar.End.Column -= len(curindent)
 			scalar.Value = chompScalar(scalar.Raw, flags, indent)
+			if toktype == TokenScalar && len(state.resolverMachines) > 0 {
+				s := scalar.Value.(string)
+				if tag := state.resolveScalarTag(s); tag != "" {
+					scalar.Value = resolvedScalar{Value: s, Tag: tag}
+				}
+			}
 
 			npos := scalar.End
 			npos.Column++
