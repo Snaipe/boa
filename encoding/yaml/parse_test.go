@@ -289,3 +289,42 @@ func TestYAML11Parser(t *testing.T) {
 func TestStrictYAMLParser(t *testing.T) {
 	runYAMLParserSuite(t, "testdata/strict-yaml", StrictYAML, nil)
 }
+
+func BenchmarkStandardSuite(b *testing.B) {
+	filepath.Walk("testdata/standard", func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			b.Fatal(err)
+		}
+		if !info.IsDir() {
+			return nil
+		}
+		if info.Name()[0] == '.' {
+			return filepath.SkipDir
+		}
+
+		inpath := filepath.Join(path, "in.yaml")
+		if _, err := os.Stat(inpath); err != nil {
+			return nil
+		}
+
+		// Skip tests that expect parse errors.
+		if _, err := os.Stat(filepath.Join(path, "error")); err == nil {
+			return filepath.SkipDir
+		}
+
+		name := info.Name()
+		b.Run(name, func(b *testing.B) {
+			txt, err := os.ReadFile(inpath)
+			if err != nil {
+				b.Fatal(err)
+			}
+
+			for i := 0; i < b.N; i++ {
+				if _, err := newParser(context.Background(), bytes.NewReader(txt), DefaultSchema).Parse(); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+		return filepath.SkipDir
+	})
+}

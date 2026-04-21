@@ -1,0 +1,296 @@
+int: -42424242
+int-8: -42
+int-16: -4242
+int-32: -42424242
+int-64: -4242424242424242
+uint: 42424242
+uintptr: 42424242
+uint-8: 42
+uint-16: 4242
+uint-32: 42424242
+uint-64: 4242424242424242
+string: Some string
+float-32: 4242.42431640625
+float-64: 4242.4242
+bool: true
+big-int: 424242424242424242424242424242424242424242424242
+big-float: 4.24242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242e+47
+big-rat: 4.242424242424243e+47
+url: "https://snai.pe/boa"
+time: "2021-02-01T12:10:03Z"
+regexp: "^.*$"
+map:
+  bool: true
+  float: 4242.4242
+  int: -42424242
+  list:
+    - 42
+    - -42
+    - 4242.4242
+    - string
+    - true
+    - null
+  map:
+    bool: true
+    float: 4242.4242
+    int: -42424242
+    nil: null
+    string: Some string
+    uint: 42424242
+  nil: null
+  string: Some string
+  uint: 42424242
+list:
+  - 42
+  - -42
+  - 4242.4242
+  - string
+  - true
+  - null
+ptr-int: -42424242
+ptr-int-8: -42
+ptr-int-16: -4242
+ptr-int-32: -42424242
+ptr-int-64: -4242424242424242
+ptr-uint: 42424242
+ptr-uintptr: 42424242
+ptr-uint-8: 42
+ptr-uint-16: 4242
+ptr-uint-32: 42424242
+ptr-uint-64: 4242424242424242
+ptr-string: Some string
+ptr-float-32: 4242.42431640625
+ptr-float-64: 4242.4242
+ptr-bool: true
+ptr-big-int: 424242424242424242424242424242424242424242424242
+ptr-big-float: 4.24242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242e+47
+ptr-big-rat: 4.242424242424243e+47
+ptr-url: "https://snai.pe/boa"
+ptr-time: "2021-02-01T12:10:03Z"
+ptr-regexp: "^.*$"
+ptr-map:
+  bool: true
+  float: 4242.4242
+  int: -42424242
+  list:
+    - 42
+    - -42
+    - 4242.4242
+    - string
+    - true
+    - null
+  map:
+    bool: true
+    float: 4242.4242
+    int: -42424242
+    nil: null
+    string: Some string
+    uint: 42424242
+  nil: null
+  string: Some string
+  uint: 42424242
+ptr-list:
+  - 42
+  - -42
+  - 4242.4242
+  - string
+  - true
+  - null
+struct:
+  int: -42424242
+  int-8: -42
+  int-16: -4242
+  int-32: -42424242
+  int-64: -4242424242424242
+  uint: 42424242
+  uintptr: 42424242
+  uint-8: 42
+  uint-16: 4242
+  uint-32: 42424242
+  uint-64: 4242424242424242
+  string: Some string
+  float-32: 4242.42431640625
+  float-64: 4242.4242
+  bool: true
+  big-int: 424242424242424242424242424242424242424242424242
+  big-float: 4.24242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242e+47
+  big-rat: 4.242424242424243e+47
+  url: "https://snai.pe/boa"
+  time: "2021-02-01T12:10:03Z"
+  regexp: "^.*$"
+  map:
+    bool: true
+    float: 4242.4242
+    int: -42424242
+    list:
+      - 42
+      - -42
+      - 4242.4242
+      - string
+      - true
+      - null
+    map:
+      bool: true
+      float: 4242.4242
+      int: -42424242
+      nil: null
+      string: Some string
+      uint: 42424242
+    nil: null
+    string: Some string
+    uint: 42424242
+  list:
+    - 42
+    - -42
+    - 4242.4242
+    - string
+    - true
+    - null
+  ptr-int: -42424242
+  ptr-int-8: -42
+  ptr-int-16: -4242
+  ptr-int-32: -42424242
+  ptr-int-64: -4242424242424242
+  ptr-uint: 42424242
+  ptr-uintptr: 42424242
+  ptr-uint-8: 42
+  ptr-uint-16: 4242
+  ptr-uint-32: 42424242
+  ptr-uint-64: 4242424242424242
+  ptr-string: Some string
+  ptr-float-32: 4242.42431640625
+  ptr-float-64: 4242.4242
+  ptr-bool: true
+  ptr-big-int: 424242424242424242424242424242424242424242424242
+  ptr-big-float: 4.24242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242e+47
+  ptr-big-rat: 4.242424242424243e+47
+  ptr-url: "https://snai.pe/boa"
+  ptr-time: "2021-02-01T12:10:03Z"
+  ptr-regexp: "^.*$"
+  ptr-map:
+    bool: true
+    float: 4242.4242
+    int: -42424242
+    list:
+      - 42
+      - -42
+      - 4242.4242
+      - string
+      - true
+      - null
+    map:
+      bool: true
+      float: 4242.4242
+      int: -42424242
+      nil: null
+      string: Some string
+      uint: 42424242
+    nil: null
+    string: Some string
+    uint: 42424242
+  ptr-list:
+    - 42
+    - -42
+    - 4242.4242
+    - string
+    - true
+    - null
+ptr:
+  int: -42424242
+  int-8: -42
+  int-16: -4242
+  int-32: -42424242
+  int-64: -4242424242424242
+  uint: 42424242
+  uintptr: 42424242
+  uint-8: 42
+  uint-16: 4242
+  uint-32: 42424242
+  uint-64: 4242424242424242
+  string: Some string
+  float-32: 4242.42431640625
+  float-64: 4242.4242
+  bool: true
+  big-int: 424242424242424242424242424242424242424242424242
+  big-float: 4.24242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242e+47
+  big-rat: 4.242424242424243e+47
+  url: "https://snai.pe/boa"
+  time: "2021-02-01T12:10:03Z"
+  regexp: "^.*$"
+  map:
+    bool: true
+    float: 4242.4242
+    int: -42424242
+    list:
+      - 42
+      - -42
+      - 4242.4242
+      - string
+      - true
+      - null
+    map:
+      bool: true
+      float: 4242.4242
+      int: -42424242
+      nil: null
+      string: Some string
+      uint: 42424242
+    nil: null
+    string: Some string
+    uint: 42424242
+  list:
+    - 42
+    - -42
+    - 4242.4242
+    - string
+    - true
+    - null
+  ptr-int: -42424242
+  ptr-int-8: -42
+  ptr-int-16: -4242
+  ptr-int-32: -42424242
+  ptr-int-64: -4242424242424242
+  ptr-uint: 42424242
+  ptr-uintptr: 42424242
+  ptr-uint-8: 42
+  ptr-uint-16: 4242
+  ptr-uint-32: 42424242
+  ptr-uint-64: 4242424242424242
+  ptr-string: Some string
+  ptr-float-32: 4242.42431640625
+  ptr-float-64: 4242.4242
+  ptr-bool: true
+  ptr-big-int: 424242424242424242424242424242424242424242424242
+  ptr-big-float: 4.24242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242e+47
+  ptr-big-rat: 4.242424242424243e+47
+  ptr-url: "https://snai.pe/boa"
+  ptr-time: "2021-02-01T12:10:03Z"
+  ptr-regexp: "^.*$"
+  ptr-map:
+    bool: true
+    float: 4242.4242
+    int: -42424242
+    list:
+      - 42
+      - -42
+      - 4242.4242
+      - string
+      - true
+      - null
+    map:
+      bool: true
+      float: 4242.4242
+      int: -42424242
+      nil: null
+      string: Some string
+      uint: 42424242
+    nil: null
+    string: Some string
+    uint: 42424242
+  ptr-list:
+    - 42
+    - -42
+    - 4242.4242
+    - string
+    - true
+    - null
