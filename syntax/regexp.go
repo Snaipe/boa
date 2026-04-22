@@ -254,6 +254,7 @@ type StepFunc func(rune) (StepFunc, bool)
 
 // RegexpMachine runs a compiled Regexp as a StepFunc-compatible NFA.
 type RegexpMachine struct {
+	step     StepFunc // pre-allocated method value; set once in NewMachine()
 	ns       nfaState
 	peek     nfaState // epsilon-expand scratch for eager accept detection
 	pos      int
@@ -290,6 +291,7 @@ func (re *Regexp) NewMachine() *RegexpMachine {
 	// Eagerly detect acceptance of the empty string.
 	m.peek.cur = append(m.peek.cur[:0], m.ns.cur...)
 	m.peek.expand(0, m.captures, &m.last)
+	m.step = m.Step // one allocation, amortized across all token scans
 	return m
 }
 
@@ -333,7 +335,7 @@ func (m *RegexpMachine) Step(r rune) (StepFunc, bool) {
 	if !alive {
 		return nil, m.last != prevLast
 	}
-	return m.Step, m.last != prevLast
+	return m.step, m.last != prevLast
 }
 
 // Captures returns the captured substrings from text.
