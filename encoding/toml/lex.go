@@ -49,12 +49,26 @@ func isIdentifierChar(r rune) bool {
 }
 
 type lexerState struct {
-	expectKey bool
+	expectKey  bool
+	ndkRunners []ndkRunner
+}
+
+// ndkRunner is a pre-allocated RegexpMachine paired with its machine spec.
+type ndkRunner struct {
+	rm   *RegexpMachine
+	emit func(l *Lexer, state *lexerState, captures []string) StateFunc
 }
 
 func newLexer(ctx context.Context, input io.Reader) *Lexer {
+	machines := ndkMachines()
+	runners := make([]ndkRunner, len(machines))
+	for i := range machines {
+		runners[i].rm = machines[i].re.NewMachine()
+		runners[i].emit = machines[i].emit
+	}
 	state := lexerState{
-		expectKey: true,
+		expectKey:  true,
+		ndkRunners: runners,
 	}
 	return NewLexer(ctx, input, state.lex)
 }
@@ -376,11 +390,12 @@ func (state *lexerState) lexString(l *Lexer, delim rune) StateFunc {
 	}
 }
 
-func (state *lexerState) lexNumberOrDateOrKey(l *Lexer) StateFunc {
-	// Order matters: on equal-length matches, the first machine wins.
-	// In particular, decIntRe must precede keyRe so that bare integers
-	// (e.g. "42") are lexed as numbers, not keys.
-	return state.runNDK(l, []machine{
+// ndkMachines returns the set of NDK machines used for number/date/key lexing.
+// Order matters: on equal-length matches, the first machine wins.
+// In particular, decIntRe must precede keyRe so that bare integers
+// (e.g. "42") are lexed as numbers, not keys.
+func ndkMachines() []machine {
+	return []machine{
 		{re: floatRe, emit: floatEmit},
 		{re: specialRe, emit: specialEmit},
 		{re: hexIntRe, emit: prefixIntEmit(16)},
@@ -392,7 +407,11 @@ func (state *lexerState) lexNumberOrDateOrKey(l *Lexer) StateFunc {
 		{re: dtDateRe, emit: dtDateEmit},
 		{re: dtTimeRe, emit: dtTimeEmit},
 		{re: keyRe, emit: keyEmit},
-	})
+	}
+}
+
+func (state *lexerState) lexNumberOrDateOrKey(l *Lexer) StateFunc {
+	return state.runNDK(l)
 }
 
 func (state *lexerState) lexIdentifier(l *Lexer) StateFunc {

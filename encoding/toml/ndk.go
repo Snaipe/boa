@@ -33,15 +33,16 @@ type machine struct {
 
 // runNDK drives all machines simultaneously on the lexer and emits the token
 // produced by the winner (longest accepted prefix).
-func (state *lexerState) runNDK(l *Lexer, machines []machine) StateFunc {
+func (state *lexerState) runNDK(l *Lexer) StateFunc {
 	type runner struct {
 		rm   *RegexpMachine
 		cur  StepFunc
 		snap ndkSnap
 	}
-	runners := make([]runner, len(machines))
-	for i := range machines {
-		runners[i].rm = machines[i].re.NewMachine()
+	runners := make([]runner, len(state.ndkRunners))
+	for i := range state.ndkRunners {
+		state.ndkRunners[i].rm.Reset()
+		runners[i].rm = state.ndkRunners[i].rm
 		runners[i].cur = runners[i].rm.Step
 		runners[i].snap.len = -1
 	}
@@ -66,7 +67,7 @@ func (state *lexerState) runNDK(l *Lexer, machines []machine) StateFunc {
 			if next != nil {
 				anyAlive = true
 				if accepting {
-					rr.snap = ndkSnap{len(l.Token()), l.Position, l.NextPosition}
+					rr.snap = ndkSnap{l.TokenLen(), l.Position, l.NextPosition}
 				}
 			}
 		}
@@ -93,7 +94,7 @@ func (state *lexerState) runNDK(l *Lexer, machines []machine) StateFunc {
 	l.PushBack(l.Token()[snap.len:])
 	l.TruncateToken(snap.len, snap.pos, snap.nextPos)
 
-	return machines[winner].emit(l, state, runners[winner].rm.Captures(l.Token()))
+	return state.ndkRunners[winner].emit(l, state, runners[winner].rm.Captures(l.Token()))
 }
 
 var keyRe = MustCompileRegexp("key", `[a-zA-Z0-9_-]+`)

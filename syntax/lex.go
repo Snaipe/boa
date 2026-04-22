@@ -325,6 +325,12 @@ func (l *Lexer) Token() string {
 	return string(l.token.Bytes())
 }
 
+// TokenLen returns the byte length of the current token buffer without
+// allocating a string copy.
+func (l *Lexer) TokenLen() int {
+	return l.token.Len()
+}
+
 func (l *Lexer) AcceptRune(exp rune) (rune, error) {
 	r, _, err := l.ReadRune()
 	switch {
