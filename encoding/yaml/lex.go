@@ -121,6 +121,17 @@ type lexerState struct {
 	// scalar after chompScalar produces the final string.
 	resolverMachines []*RegexpMachine
 	resolverTags     []string
+
+	// Scalar lexing context: parameters stored by lexScalar, consumed by
+	// lexScalarBody and emitScalar. Avoids heap-allocating a closure per scalar.
+	scalarToktype TokenType
+	scalarFlags   int
+	scalarIndent  int
+
+	// Pre-allocated method values returned from hot StateFunc transitions.
+	// Set once in newLexer; reusing them avoids a heap allocation per return.
+	lexFn       StateFunc // state.lex
+	lexScalarFn StateFunc // state.lexScalarBody
 }
 
 // startScalar records the current token column as the key column and
@@ -135,6 +146,8 @@ func newLexer(ctx context.Context, input io.Reader) (*Lexer, *lexerState) {
 		newline: true,
 		indent:  -1, // document level: no parent indentation context
 	}
+	state.lexFn = state.lex
+	state.lexScalarFn = state.lexScalarBody
 	return NewLexer(ctx, input, state.lex), &state
 }
 
@@ -803,19 +816,70 @@ func (state *lexerState) lexScalar(toktype TokenType, flags, indent int) StateFu
 	if state.FlowMode {
 		indent = -1
 	}
-	return func(l *Lexer) StateFunc {
-		return state.lexScalarBody(l, toktype, flags, indent)
-	}
+	state.scalarToktype = toktype
+	state.scalarFlags = flags
+	state.scalarIndent = indent
+	return state.lexScalarFn
 }
 
-func (state *lexerState) lexScalarBody(l *Lexer, toktype TokenType, flags, indent int) StateFunc {
+// emitScalar builds and emits a scalar token (and an optional trailing-indent
+// token). raw is the full token buffer; curindent is the suffix within raw that
+// belongs to the next line's indentation, not to the scalar content itself.
+func (state *lexerState) emitScalar(l *Lexer, raw, curindent string) {
+	scalar := Token{
+		Type:  state.scalarToktype,
+		Raw:   raw[:len(raw)-len(curindent)],
+		Start: l.TokenPosition,
+		End:   l.Position,
+	}
+	scalar.End.Column -= len(curindent)
+	scalar.Value = chompScalar(scalar.Raw, state.scalarFlags, state.scalarIndent)
+	if state.scalarToktype == TokenScalar && len(state.resolverMachines) > 0 {
+		s := scalar.Value.(string)
+		if tag := state.resolveScalarTag(s); tag != "" {
+			scalar.Value = resolvedScalar{Value: s, Tag: tag}
+		}
+	}
+
+	npos := scalar.End
+	npos.Column++
+
+	l.EmitRaw(scalar)
+
+	if len(curindent) > 0 {
+		l.EmitRaw(Token{
+			Type:  TokenIndent,
+			Raw:   raw[len(raw)-len(curindent):],
+			Start: npos,
+			End:   l.Position,
+		})
+	}
+
+	l.TokenPosition = l.NextPosition
+}
+
+// terminateScalar emits the current scalar token up to (but not including)
+// the leading whitespace of the next line, sets state.newline so the lexer
+// resumes in newline mode, and — when curindent is empty — synthesizes a
+// zero-width TokenNewline so the parser's skipBlank registers a line crossing.
+func (state *lexerState) terminateScalar(l *Lexer, curindent string) StateFunc {
+	state.emitScalar(l, l.Token(), curindent)
+	state.newline = true
+	if len(curindent) == 0 {
+		npos := l.TokenPosition
+		l.EmitRaw(Token{Type: TokenNewline, Start: npos, End: npos})
+	}
+	return state.lexFn
+}
+
+func (state *lexerState) lexScalarBody(l *Lexer) StateFunc {
 	// For block scalars (mlliteral), track the content indent level.
 	// -1 means "not yet determined" (auto-detect from first non-blank line).
-	// For explicit indent indicators (flags & mlindent > 0), pre-compute it.
+	// For explicit indent indicators (scalarFlags & mlindent > 0), pre-compute it.
 	blockContentIndent := -1
-	if flags&mlliteral != 0 {
-		if explicit := flags & mlindent; explicit > 0 {
-			blockContentIndent = indent + explicit
+	if state.scalarFlags&mlliteral != 0 {
+		if explicit := state.scalarFlags & mlindent; explicit > 0 {
+			blockContentIndent = state.scalarIndent + explicit
 		}
 	}
 
@@ -825,54 +889,6 @@ func (state *lexerState) lexScalarBody(l *Lexer, toktype TokenType, flags, inden
 	// are invalid (YAML 1.2 spec §8.1.1.2 l-empty rule).
 	maxBlankIndent := 0
 
-	emit := func(raw, curindent string) {
-
-		scalar := Token{
-			Type:  toktype,
-			Raw:   raw[:len(raw)-len(curindent)],
-			Start: l.TokenPosition,
-			End:   l.Position,
-		}
-		scalar.End.Column -= len(curindent)
-		scalar.Value = chompScalar(scalar.Raw, flags, indent)
-		if toktype == TokenScalar && len(state.resolverMachines) > 0 {
-			s := scalar.Value.(string)
-			if tag := state.resolveScalarTag(s); tag != "" {
-				scalar.Value = resolvedScalar{Value: s, Tag: tag}
-			}
-		}
-
-		npos := scalar.End
-		npos.Column++
-
-		l.EmitRaw(scalar)
-
-		if len(curindent) > 0 {
-			l.EmitRaw(Token{
-				Type:  TokenIndent,
-				Raw:   raw[len(raw)-len(curindent):],
-				Start: npos,
-				End:   l.Position,
-			})
-		}
-
-		l.TokenPosition = l.NextPosition
-	}
-
-	// terminateScalar emits the current scalar token up to (but not including)
-	// the leading whitespace of the next line, sets state.newline so the lexer
-	// resumes in newline mode, and — when curindent is empty — synthesizes a
-	// zero-width TokenNewline so the parser's skipBlank registers a line crossing.
-	terminateScalar := func(curindent string) StateFunc {
-		emit(l.Token(), curindent)
-		state.newline = true
-		if len(curindent) == 0 {
-			npos := l.TokenPosition
-			l.EmitRaw(Token{Type: TokenNewline, Start: npos, End: npos})
-		}
-		return state.lex
-	}
-
 	for {
 		if state.newline {
 			state.newline = false
@@ -880,7 +896,7 @@ func (state *lexerState) lexScalarBody(l *Lexer, toktype TokenType, flags, inden
 			curindent, err := l.AcceptRun(" ")
 			if err != nil {
 				if err == io.EOF {
-					emit(l.Token(), "")
+					state.emitScalar(l, l.Token(), "")
 				}
 				return l.Error(err)
 			}
@@ -892,7 +908,7 @@ func (state *lexerState) lexScalarBody(l *Lexer, toktype TokenType, flags, inden
 					l.UnreadRune() // put the newline back for the next iteration
 				}
 				// For block scalars, track max blank-line indent before content.
-				if flags&mlliteral != 0 && blockContentIndent < 0 && len(curindent) > maxBlankIndent {
+				if state.scalarFlags&mlliteral != 0 && blockContentIndent < 0 && len(curindent) > maxBlankIndent {
 					maxBlankIndent = len(curindent)
 				}
 				continue
@@ -903,42 +919,42 @@ func (state *lexerState) lexScalarBody(l *Lexer, toktype TokenType, flags, inden
 			// For block scalars: a tab at the start of a line (no leading spaces)
 			// before the content indent is determined is invalid — block scalar
 			// indentation must use spaces only (YAML 1.2 spec §8.1.1).
-			if flags&mlliteral != 0 && r1 == '\t' && len(curindent) == 0 && blockContentIndent < 0 {
+			if state.scalarFlags&mlliteral != 0 && r1 == '\t' && len(curindent) == 0 && blockContentIndent < 0 {
 				return l.Errorf("tab character not allowed as indentation in block scalar")
 			}
 
-			// At document level (indent == -1), check for document markers
+			// At document level (scalarIndent == -1), check for document markers
 			// (--- or ...) at column 0 which terminate the scalar.
-			if indent < 0 && len(curindent) == 0 && (r1 == '-' || r1 == '.') {
+			if state.scalarIndent < 0 && len(curindent) == 0 && (r1 == '-' || r1 == '.') {
 				// r1 is already read; peek the next 3 chars to check for a marker.
 				rest, _ := l.PeekPrefix(3)
 				isMarker := len(rest) >= 2 && rune(rest[0]) == r1 && rune(rest[1]) == r1 &&
 					(len(rest) < 3 || isSpace(rune(rest[2])) || isNewline(rune(rest[2])))
 				l.UnreadRune() // put r1 back regardless
 				if isMarker {
-					emit(l.Token(), "")
+					state.emitScalar(l, l.Token(), "")
 					state.newline = true
-					return state.lex
+					return state.lexFn
 				}
 			} else {
 				// A '#' at the start of a new line terminates a plain scalar.
-				if r1 == '#' && flags&mlliteral == 0 {
+				if r1 == '#' && state.scalarFlags&mlliteral == 0 {
 					l.UnreadRune() // put '#' back for lexer to emit as comment
-					emit(l.Token(), curindent)
+					state.emitScalar(l, l.Token(), curindent)
 					state.newline = true
-					return state.lex
+					return state.lexFn
 				}
 				l.UnreadRune() // unread r1; not a marker, let the main loop read it
 			}
 
-			if flags&mlliteral != 0 {
+			if state.scalarFlags&mlliteral != 0 {
 				// Block scalar: use content indent for termination, not parent indent.
 				if blockContentIndent < 0 {
 					// First non-blank content line: auto-detect content indent.
 					// If the line is at or below the parent indent, the block
 					// scalar has no content — terminate immediately.
-					if indent >= 0 && len(curindent) <= indent {
-						return terminateScalar(curindent)
+					if state.scalarIndent >= 0 && len(curindent) <= state.scalarIndent {
+						return state.terminateScalar(l, curindent)
 					}
 					blockContentIndent = len(curindent)
 					// Blank lines before the first content line must not have
@@ -948,11 +964,11 @@ func (state *lexerState) lexScalarBody(l *Lexer, toktype TokenType, flags, inden
 					}
 				} else if len(curindent) < blockContentIndent {
 					// Non-blank line at lower indent than content: end of block scalar.
-					return terminateScalar(curindent)
+					return state.terminateScalar(l, curindent)
 				}
-			} else if indent >= 0 && len(curindent) <= indent {
+			} else if state.scalarIndent >= 0 && len(curindent) <= state.scalarIndent {
 				// Plain scalar: terminate at parent indent or shorter.
-				return terminateScalar(curindent)
+				return state.terminateScalar(l, curindent)
 			}
 		}
 
@@ -961,7 +977,7 @@ func (state *lexerState) lexScalarBody(l *Lexer, toktype TokenType, flags, inden
 		r, _, err := l.ReadRune()
 		switch {
 		case err == io.EOF:
-			emit(l.Token(), "")
+			state.emitScalar(l, l.Token(), "")
 			return l.Error(err)
 		case err != nil:
 			return l.Error(err)
@@ -978,8 +994,8 @@ func (state *lexerState) lexScalarBody(l *Lexer, toktype TokenType, flags, inden
 		case ']', '}':
 			if state.FlowMode {
 				l.UnreadRune()
-				emit(l.Token(), "")
-				return state.lex
+				state.emitScalar(l, l.Token(), "")
+				return state.lexFn
 			}
 		case ',':
 			if !state.FlowMode {
@@ -987,13 +1003,13 @@ func (state *lexerState) lexScalarBody(l *Lexer, toktype TokenType, flags, inden
 			}
 			// In flow mode, comma always terminates a plain scalar.
 			l.UnreadRune()
-			emit(l.Token(), "")
-			return state.lex
+			state.emitScalar(l, l.Token(), "")
+			return state.lexFn
 		case ' ', '\t', ':':
 			next, _, err := l.PeekRune()
 			if err != nil {
 				if err == io.EOF {
-					emit(l.Token(), "")
+					state.emitScalar(l, l.Token(), "")
 				}
 				return l.Error(err)
 			}
@@ -1001,7 +1017,7 @@ func (state *lexerState) lexScalarBody(l *Lexer, toktype TokenType, flags, inden
 			if isSpace(r) {
 				// Space or tab stops the scalar before a comment marker,
 				// but only in plain scalars (not block scalars).
-				stop = next == '#' && flags&mlliteral == 0
+				stop = next == '#' && state.scalarFlags&mlliteral == 0
 			} else {
 				// Colon stops before space (including tab), newline, or (in flow mode) flow indicators.
 				stop = isSpace(next) || isNewline(next) ||
@@ -1009,8 +1025,8 @@ func (state *lexerState) lexScalarBody(l *Lexer, toktype TokenType, flags, inden
 			}
 			if stop {
 				l.UnreadRune()
-				emit(l.Token(), "")
-				return state.lex
+				state.emitScalar(l, l.Token(), "")
+				return state.lexFn
 			}
 		}
 	}
