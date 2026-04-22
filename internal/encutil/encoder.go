@@ -172,7 +172,11 @@ func (m *MarshalerBase) MarshalNumber(v constant.Value) (err error) {
 			f64, _ := f.Float64()
 			s = strconv.FormatFloat(f64, 'g', -1, 64)
 		case *big.Float:
-			s = f.Text('g', -1)
+			if f64, acc := f.Float64(); acc == big.Exact {
+				s = strconv.FormatFloat(f64, 'g', -1, 64)
+			} else {
+				s = f.Text('g', -1)
+			}
 		}
 
 		// Preserve at least a trailing .0 to keep floats as floats.
