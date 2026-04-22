@@ -392,10 +392,17 @@ func (state *lexerState) lexHex(l *Lexer) StateFunc {
 func (state *lexerState) lexNumber(l *Lexer) StateFunc {
 	const prec = 512 // matches current implementation of go/constant
 
-	val, err := ParseBigNumber(l.Context, l, prec, big.ToNearestEven)
+	val, err := ParseNumber(l.Context, l, prec, big.ToNearestEven)
 	if err != nil {
 		return l.Error(err)
 	}
-	l.Emit(TokenNumber, constant.Make(val))
+	var c constant.Value
+	switch v := val.(type) {
+	case int64:
+		c = constant.MakeInt64(v)
+	default:
+		c = constant.Make(v)
+	}
+	l.Emit(TokenNumber, c)
 	return state.lex
 }

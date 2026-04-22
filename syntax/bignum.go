@@ -427,21 +427,9 @@ func convertFloat(ctx context.Context, rn *rawNumber, prec uint, mode big.Roundi
 	return f, nil
 }
 
-// ParseBigNumber parses a decimal number from r, returning *big.Int when the
-// value is an exact integer (effective exponent >= 0) or *big.Float otherwise.
-// prec and mode govern the float path only; integers are exact. Reading stops
-// at the first non-number rune, which is unread. Ctx is checked between chunks
-// for cancellation.
-func ParseBigNumber(ctx context.Context, r io.RuneScanner, prec uint, mode big.RoundingMode) (interface{}, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
-	rn, err := readNumber(r)
-	if err != nil {
-		return nil, err
-	}
-
+// parseBigNumberFromRaw converts an already-parsed rawNumber into *big.Int or
+// *big.Float. It is the slow path shared by ParseBigNumber and ParseNumber.
+func parseBigNumberFromRaw(ctx context.Context, rn *rawNumber, prec uint, mode big.RoundingMode) (interface{}, error) {
 	if rn.rawDigits.Len() == 0 {
 		if rn.effExp >= 0 && !rn.neg {
 			return new(big.Int), nil
@@ -483,11 +471,66 @@ func ParseBigNumber(ctx context.Context, r io.RuneScanner, prec uint, mode big.R
 	}
 
 	// Float path: bounded-precision conversion via convertFloat.
-	f, err := convertFloat(ctx, &rn, prec, mode)
+	f, err := convertFloat(ctx, rn, prec, mode)
 	if err != nil {
 		return nil, err
 	}
 	return f, nil
+}
+
+// ParseBigNumber parses a decimal number from r, returning *big.Int when the
+// value is an exact integer (effective exponent >= 0) or *big.Float otherwise.
+// prec and mode govern the float path only; integers are exact. Reading stops
+// at the first non-number rune, which is unread. Ctx is checked between chunks
+// for cancellation.
+func ParseBigNumber(ctx context.Context, r io.RuneScanner, prec uint, mode big.RoundingMode) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	rn, err := readNumber(r)
+	if err != nil {
+		return nil, err
+	}
+	return parseBigNumberFromRaw(ctx, &rn, prec, mode)
+}
+
+// ParseNumber parses a decimal number from r. For integers within the int64
+// range it returns int64 without allocating a big.Int. For larger integers or
+// fractional values it falls back to *big.Int or *big.Float respectively.
+// prec and mode govern the float path only. Reading stops at the first
+// non-number rune, which is unread. Ctx is checked between chunks for
+// cancellation.
+func ParseNumber(ctx context.Context, r io.RuneScanner, prec uint, mode big.RoundingMode) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	rn, err := readNumber(r)
+	if err != nil {
+		return nil, err
+	}
+
+	// Integer fast path: avoid big.Int allocation for small exact integers.
+	// Total decimal columns (rawDigits + effExp trailing zeros) <= 18 guarantees
+	// the value fits in int64 (10^18 < MaxInt64). Exclude -0: it must round-trip
+	// as a float to preserve the sign bit.
+	if rn.effExp >= 0 && rn.rawDigits.Len()+int(rn.effExp) <= 18 && (rn.rawDigits.Len() > 0 || !rn.neg) {
+		var u uint64
+		for _, b := range rn.rawDigits.Bytes() {
+			u = u*10 + uint64(b-'0')
+		}
+		var scale uint64 = 1
+		for i := 0; i < int(rn.effExp); i++ {
+			scale *= 10
+		}
+		u *= scale
+		i64 := int64(u)
+		if rn.neg {
+			i64 = -i64
+		}
+		return i64, nil
+	}
+
+	return parseBigNumberFromRaw(ctx, &rn, prec, mode)
 }
 
 // ParseBigFloat parses a decimal floating-point number from r at the requested
