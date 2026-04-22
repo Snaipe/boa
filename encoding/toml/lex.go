@@ -54,9 +54,12 @@ type lexerState struct {
 }
 
 // ndkRunner is a pre-allocated RegexpMachine paired with its machine spec.
+// cur and snap are per-run state reset at the start of each runNDK call.
 type ndkRunner struct {
 	rm   *RegexpMachine
 	emit func(l *Lexer, state *lexerState, captures []string) StateFunc
+	cur  StepFunc
+	snap ndkSnap
 }
 
 func newLexer(ctx context.Context, input io.Reader) *Lexer {

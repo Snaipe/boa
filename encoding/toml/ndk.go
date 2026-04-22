@@ -34,17 +34,11 @@ type machine struct {
 // runNDK drives all machines simultaneously on the lexer and emits the token
 // produced by the winner (longest accepted prefix).
 func (state *lexerState) runNDK(l *Lexer) StateFunc {
-	type runner struct {
-		rm   *RegexpMachine
-		cur  StepFunc
-		snap ndkSnap
-	}
-	runners := make([]runner, len(state.ndkRunners))
 	for i := range state.ndkRunners {
-		state.ndkRunners[i].rm.Reset()
-		runners[i].rm = state.ndkRunners[i].rm
-		runners[i].cur = runners[i].rm.Step
-		runners[i].snap.len = -1
+		r := &state.ndkRunners[i]
+		r.rm.Reset()
+		r.cur = r.rm.Step
+		r.snap.len = -1
 	}
 
 	for {
@@ -57,8 +51,8 @@ func (state *lexerState) runNDK(l *Lexer) StateFunc {
 		}
 
 		anyAlive := false
-		for i := range runners {
-			rr := &runners[i]
+		for i := range state.ndkRunners {
+			rr := &state.ndkRunners[i]
 			if rr.cur == nil {
 				continue
 			}
@@ -78,8 +72,8 @@ func (state *lexerState) runNDK(l *Lexer) StateFunc {
 	}
 
 	winner := -1
-	for i := range runners {
-		if runners[i].snap.len >= 0 && (winner < 0 || runners[i].snap.len > runners[winner].snap.len) {
+	for i := range state.ndkRunners {
+		if state.ndkRunners[i].snap.len >= 0 && (winner < 0 || state.ndkRunners[i].snap.len > state.ndkRunners[winner].snap.len) {
 			winner = i
 		}
 	}
@@ -90,11 +84,11 @@ func (state *lexerState) runNDK(l *Lexer) StateFunc {
 	// Backtrack: push any bytes consumed past the winning snapshot back into the
 	// input stream, then truncate the token buffer. PushBack handles arbitrary
 	// overshoot depths, unlike repeated UnreadRune (backbuffer capacity = 4).
-	snap := runners[winner].snap
+	snap := state.ndkRunners[winner].snap
 	l.PushBack(l.Token()[snap.len:])
 	l.TruncateToken(snap.len, snap.pos, snap.nextPos)
 
-	return state.ndkRunners[winner].emit(l, state, runners[winner].rm.Captures(l.Token()))
+	return state.ndkRunners[winner].emit(l, state, state.ndkRunners[winner].rm.Captures(l.Token()))
 }
 
 var keyRe = MustCompileRegexp("key", `[a-zA-Z0-9_-]+`)
