@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"strconv"
 )
@@ -492,6 +493,57 @@ func ParseBigNumber(ctx context.Context, r io.RuneScanner, prec uint, mode big.R
 		return nil, err
 	}
 	return parseBigNumberFromRaw(ctx, &rn, prec, mode)
+}
+
+// ParseNumberBytes parses a decimal number from a pre-buffered byte slice.
+// For integers within the int64 range it returns int64 without allocating.
+// For larger integers or fractional values it falls back to *big.Int or
+// *big.Float respectively. It is the pre-buffered equivalent of ParseNumber:
+// callers that already hold the complete token bytes (e.g. a lexer emit
+// function working on a pre-matched token) should prefer this over creating
+// an io.RuneScanner wrapper.
+func ParseNumberBytes(ctx context.Context, b []byte, prec uint, mode big.RoundingMode) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	orig := b
+
+	var neg bool
+	if len(b) > 0 && (b[0] == '+' || b[0] == '-') {
+		neg = b[0] == '-'
+		b = b[1:]
+	}
+
+	// Fast path: accumulate directly into uint64, skipping underscores.
+	// int64 max is 19 decimal digits; bail on digit-count overflow, values
+	// that exceed MaxInt64, or any non-digit non-underscore byte (fraction,
+	// exponent, or unexpected character).
+	var (
+		u       uint64
+		nDigits int
+	)
+	for _, c := range b {
+		switch {
+		case c == '_':
+			continue
+		case c >= '0' && c <= '9':
+			if nDigits++; nDigits > 19 {
+				goto slow
+			}
+			u = u*10 + uint64(c-'0')
+		default:
+			goto slow
+		}
+	}
+	if nDigits > 0 && u <= math.MaxInt64 {
+		i64 := int64(u)
+		if neg {
+			i64 = -i64
+		}
+		return i64, nil
+	}
+slow:
+	return ParseNumber(ctx, bytes.NewReader(orig), prec, mode)
 }
 
 // ParseNumber parses a decimal number from r. For integers within the int64

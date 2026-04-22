@@ -6,12 +6,12 @@
 package toml
 
 import (
+	"bytes"
 	"go/constant"
 	"io"
 	"math"
 	"math/big"
 	"strconv"
-	"strings"
 	"time"
 
 	. "snai.pe/boa/syntax"
@@ -250,28 +250,62 @@ var (
 )
 
 // decIntEmit parses a decimal integer token, handling the optional sign.
-// ParseBigInt with an explicit base does not handle signs, so we strip it here.
 func decIntEmit(l *Lexer, state *lexerState, _ []string) StateFunc {
-	tok := l.Token()
-	var neg bool
-	if tok[0] == '+' || tok[0] == '-' {
-		neg = tok[0] == '-'
-		tok = tok[1:]
-	}
-	val, err := ParseBigInt(l.Context, strings.NewReader(tok), 10)
+	val, err := ParseNumberBytes(l.Context, l.TokenBytes(), 512, big.ToNearestEven)
 	if err != nil {
 		return l.Error(err)
 	}
-	if neg {
-		val.Neg(val)
+	switch v := val.(type) {
+	case int64:
+		l.Emit(TokenNumber, constant.MakeInt64(v))
+	default:
+		l.Emit(TokenNumber, constant.Make(v))
 	}
-	l.Emit(TokenNumber, constant.Make(val))
 	return state.lex
 }
 
 func prefixIntEmit(base int) func(*Lexer, *lexerState, []string) StateFunc {
+	// Maximum significant digits for uint64 in this base, used to short-circuit
+	// the fast path before any allocation.
+	maxDigits := 64 // base 2: 2^64-1 fits in 64 bits
+	if base == 8 {
+		maxDigits = 22 // 8^22 > MaxUint64 > 8^21
+	} else if base == 16 {
+		maxDigits = 16 // 16^16-1 = MaxUint64
+	}
 	return func(l *Lexer, state *lexerState, _ []string) StateFunc {
-		val, err := ParseBigInt(l.Context, strings.NewReader(l.Token()[2:]), base)
+		tokB := l.TokenBytes()[2:] // skip 0x / 0o / 0b prefix
+		// Fast path: accumulate directly over bytes — no string conversion, no allocation.
+		// Bail to ParseBigInt on digit-count exceeded or arithmetic overflow.
+		var (
+			u       uint64
+			nDigits int
+		)
+		for _, b := range tokB {
+			if b == '_' {
+				continue
+			}
+			if nDigits++; nDigits > maxDigits {
+				goto slow
+			}
+			var d uint64
+			switch {
+			case b >= '0' && b <= '9':
+				d = uint64(b - '0')
+			case b >= 'a' && b <= 'f':
+				d = uint64(b-'a') + 10
+			case b >= 'A' && b <= 'F':
+				d = uint64(b-'A') + 10
+			}
+			if u > (math.MaxUint64-d)/uint64(base) {
+				goto slow
+			}
+			u = u*uint64(base) + d
+		}
+		l.Emit(TokenNumber, constant.MakeUint64(u))
+		return state.lex
+	slow:
+		val, err := ParseBigInt(l.Context, bytes.NewReader(tokB), base)
 		if err != nil {
 			return l.Error(err)
 		}
@@ -282,7 +316,7 @@ func prefixIntEmit(base int) func(*Lexer, *lexerState, []string) StateFunc {
 
 func floatEmit(l *Lexer, state *lexerState, _ []string) StateFunc {
 	const prec = 512
-	val, err := ParseBigFloat(l.Context, strings.NewReader(l.Token()), prec, big.ToNearestEven)
+	val, err := ParseBigFloat(l.Context, bytes.NewReader(l.TokenBytes()), prec, big.ToNearestEven)
 	if err != nil {
 		return l.Error(err)
 	}

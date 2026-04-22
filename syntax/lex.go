@@ -331,6 +331,13 @@ func (l *Lexer) TokenLen() int {
 	return l.token.Len()
 }
 
+// TokenBytes returns the raw bytes of the current token buffer without
+// allocating a string copy. The slice is only valid until the next
+// ReadRune or Accept* call.
+func (l *Lexer) TokenBytes() []byte {
+	return l.token.Bytes()
+}
+
 func (l *Lexer) AcceptRune(exp rune) (rune, error) {
 	r, _, err := l.ReadRune()
 	switch {
