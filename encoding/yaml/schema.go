@@ -364,13 +364,34 @@ func processInt(ctx context.Context, base Node, val TaggedValue) (Value, error) 
 		return &Number{Node: base, Value: constv}, nil
 	}
 
-	r := strings.NewReader(num)
-	v, err := ParseBigInt(ctx, r, 0)
-	if err != nil {
-		return nil, err
-	}
-	if r.Len() > 0 {
-		return nil, fmt.Errorf("invalid integer %q", num)
+	// For decimal integers (the common case), ParseNumber has an int64 fast path
+	// that avoids big.Int allocation for values in the int64 range.
+	// Prefixed integers (0x, 0o, 0b, or legacy 0NNN octal) are routed to
+	// ParseBigInt which understands their syntax and signs correctly.
+	stripped := strings.TrimLeft(num, "+-")
+	var v interface{}
+	var err error
+	if len(stripped) > 1 && stripped[0] == '0' {
+		// Any leading-zero form (prefixed or legacy octal): use ParseBigInt.
+		r := strings.NewReader(num)
+		bigv, berr := ParseBigInt(ctx, r, 0)
+		if berr != nil {
+			return nil, berr
+		}
+		if r.Len() > 0 {
+			return nil, fmt.Errorf("invalid integer %q", num)
+		}
+		v = bigv
+	} else {
+		// Pure decimal (or plain "0"): ParseNumber has an int64 fast path.
+		r := strings.NewReader(num)
+		v, err = ParseNumber(ctx, r, 512, big.ToNearestEven)
+		if err != nil {
+			return nil, err
+		}
+		if r.Len() > 0 {
+			return nil, fmt.Errorf("invalid integer %q", num)
+		}
 	}
 	constv := constant.Make(v)
 	if constv.Kind() != constant.Int {
