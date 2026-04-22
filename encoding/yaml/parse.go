@@ -171,7 +171,7 @@ func (p *parser) Parse() (doc *Document, err error) {
 //	                      | l-bare-document
 //	l-directive-document ::= l-directive+ l-explicit-document
 func (p *parser) Document() *Document {
-	var leading []Token
+	leading := make([]Token, 0, 4)
 	tok, _ := p.skipBlank(&leading)
 
 	// Reset per-document state: tag shorthands and anchor table.
@@ -314,7 +314,7 @@ func (p *parser) Document() *Document {
 // indicator ('-' or ':'), meaning the indent check is deferred to after the
 // first newline crossing (InlineValue semantics).
 func (p *parser) value(parentIndent int, flow bool, inline bool) Value {
-	var leading []Token
+	leading := make([]Token, 0, 4)
 	tok, crossed := p.skipBlank(&leading)
 
 	// Block end: if we crossed a newline and the indent is not deep enough, return null.
@@ -639,7 +639,7 @@ func (p *parser) BlockSeq(seqIndent int, leading []Token) *List {
 	lst := &List{Node: Node{Tokens: leading}}
 
 	for {
-		var skipped []Token
+		skipped := make([]Token, 0, 4)
 		tok, _ := p.skipBlank(&skipped)
 
 		switch tok.Type {
@@ -734,7 +734,7 @@ func (p *parser) BlockMapContinue(mapIndent int, firstKey Value) *Map {
 
 	// Parse subsequent entries.
 	for {
-		var skipped []Token
+		skipped := make([]Token, 0, 4)
 		tok, crossed := p.skipBlank(&skipped)
 
 		switch tok.Type {
@@ -878,7 +878,7 @@ func (p *parser) BlockMapExplicit(mapIndent int, leading []Token) Value {
 	m := &Map{Node: Node{Tokens: leading}}
 
 	for {
-		var skipped []Token
+		skipped := make([]Token, 0, 4)
 		tok, crossed := p.skipBlank(&skipped)
 
 		switch tok.Type {
@@ -991,7 +991,7 @@ func (p *parser) FlowSeq(open Token, leading []Token) *List {
 
 	for {
 		// Collect blank tokens before each item or ']' for round-trip encoding.
-		var before []Token
+		before := make([]Token, 0, 4)
 		tok, crossed := p.skipBlank(&before)
 		p.checkFlowIndent(tok, crossed)
 
@@ -1017,7 +1017,7 @@ func (p *parser) FlowSeq(open Token, leading []Token) *List {
 		lst.Items = append(lst.Items, item)
 
 		// Collect blank tokens after the item (before ',' or ']').
-		var after []Token
+		after := make([]Token, 0, 4)
 		sep, crossed := p.skipBlank(&after)
 		p.checkFlowIndent(sep, crossed)
 		if sep.Type == TokenComma {
@@ -1157,7 +1157,7 @@ func (p *parser) FlowMap(open Token, leading []Token) *Map {
 
 	for {
 		// Collect blank tokens before each key or '}' for round-trip encoding.
-		var before []Token
+		before := make([]Token, 0, 4)
 		tok, crossed := p.skipBlank(&before)
 		p.checkFlowIndent(tok, crossed)
 
@@ -1213,7 +1213,7 @@ func (p *parser) FlowMap(open Token, leading []Token) *Map {
 		m.Entries = append(m.Entries, &MapEntry{Key: key, Value: val})
 
 		// Collect blank tokens after value (before ',' or '}').
-		var afterVal []Token
+		afterVal := make([]Token, 0, 4)
 		sep, crossed := p.skipBlank(&afterVal)
 		p.checkFlowIndent(sep, crossed)
 		if sep.Type == TokenComma {

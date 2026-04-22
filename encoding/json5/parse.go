@@ -101,7 +101,7 @@ func (p *parser) document() *Document {
 }
 
 func (p *parser) value() Value {
-	var leading []Token
+	leading := make([]Token, 0, 4)
 	token := p.Next(&leading)
 	switch token.Type {
 	case TokenLBrace:
@@ -145,7 +145,7 @@ func (p *parser) value() Value {
 }
 
 func (p *parser) key() Value {
-	var leading []Token
+	leading := make([]Token, 0, 4)
 	token := p.Next(&leading)
 	switch token.Type {
 	case TokenIdentifier, TokenString:

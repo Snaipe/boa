@@ -155,7 +155,7 @@ func (p *parser) document() *Document {
 
 out:
 	for {
-		var keyTokens []Token
+		keyTokens := make([]Token, 0, 4)
 		token := p.Next(&keyTokens, TokenWhitespace, TokenNewline, TokenComment)
 
 		delim := TokenEqual
@@ -292,7 +292,7 @@ out:
 			prev = &localEntries
 
 			// Read end-of-line for the section header
-			var eolTokens []Token
+			eolTokens := make([]Token, 0, 4)
 			eolToken := p.Next(&eolTokens, TokenWhitespace, TokenComment)
 			if eolToken.Type == TokenEOF {
 				trailingTokens = eolTokens
@@ -371,7 +371,7 @@ func (p *parser) Key(leading []Token, delim TokenType) *KeyPath {
 }
 
 func (p *parser) Value() Value {
-	var leading []Token
+	leading := make([]Token, 0, 4)
 	token := p.Next(&leading, TokenWhitespace)
 	switch token.Type {
 	case TokenLBrace:
