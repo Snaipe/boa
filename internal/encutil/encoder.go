@@ -11,6 +11,7 @@ import (
 	"io"
 	"math/big"
 	"reflect"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -158,23 +159,27 @@ func (m *MarshalerBase) MarshalString(s string) error {
 func (m *MarshalerBase) MarshalNumber(v constant.Value) (err error) {
 	switch v.Kind() {
 	case constant.Int:
-		_, err = fmt.Fprintf(m.Writer, "%d", constant.Val(v))
-	case constant.Float:
-		val := constant.Val(v)
-
-		var out strings.Builder
-		if rat, ok := val.(*big.Rat); ok {
-			val, _ = rat.Float64()
+		switch n := constant.Val(v).(type) {
+		case int64:
+			_, err = io.WriteString(m.Writer, strconv.FormatInt(n, 10))
+		case *big.Int:
+			_, err = io.WriteString(m.Writer, n.Text(10))
 		}
-		if _, err := fmt.Fprintf(&out, "%g", val); err != nil {
-			return err
+	case constant.Float:
+		var s string
+		switch f := constant.Val(v).(type) {
+		case *big.Rat:
+			f64, _ := f.Float64()
+			s = strconv.FormatFloat(f64, 'g', -1, 64)
+		case *big.Float:
+			s = f.Text('g', -1)
 		}
 
 		// Preserve at least a trailing .0 to keep floats as floats.
-		if !strings.ContainsAny(out.String(), ".eE") {
-			out.WriteString(".0")
+		if !strings.ContainsAny(s, ".eE") {
+			s += ".0"
 		}
-		err = m.WriteString(out.String())
+		err = m.WriteString(s)
 	default:
 		err = fmt.Errorf("unsupported constant %v", v)
 	}
