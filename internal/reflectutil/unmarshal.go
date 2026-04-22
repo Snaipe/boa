@@ -266,8 +266,6 @@ func unmarshal(val reflect.Value, node syntax.Value, convention encoding.NamingC
 			val.Set(reflect.Zero(typ))
 		}
 
-		_, fields := VisibleFields(val, convention, unmarshaler)
-
 		for _, entry := range mapNode.Entries {
 			entryKey := resolveAlias(entry.Key)
 			switch key := entryKey.(type) {
@@ -280,7 +278,7 @@ func unmarshal(val reflect.Value, node syntax.Value, convention encoding.NamingC
 					return val, err
 				}
 			case *syntax.String:
-				field, ok := fields[key.Value]
+				field, ok := LookupField(val, convention, unmarshaler, key.Value)
 				if !ok {
 					continue
 				}
@@ -295,7 +293,7 @@ func unmarshal(val reflect.Value, node syntax.Value, convention encoding.NamingC
 				} else {
 					fieldname = "false"
 				}
-				field, ok := fields[fieldname]
+				field, ok := LookupField(val, convention, unmarshaler, fieldname)
 				if !ok {
 					continue
 				}
@@ -304,7 +302,7 @@ func unmarshal(val reflect.Value, node syntax.Value, convention encoding.NamingC
 					return val, err
 				}
 			case *syntax.Nil:
-				field, ok := fields["null"]
+				field, ok := LookupField(val, convention, unmarshaler, "null")
 				if !ok {
 					continue
 				}
@@ -472,9 +470,7 @@ func Set(val reflect.Value, node syntax.Value, convention encoding.NamingConvent
 			return nil
 		}
 
-		_, fields := VisibleFields(rval, convention, unmarshaler)
-
-		if field, ok := fields[fname]; ok {
+		if field, ok := LookupField(rval, convention, unmarshaler, fname); ok {
 			return wrapErr(Set(field.Value, node, field.Options.Naming, unmarshaler, at[1:]...))
 		}
 		return nil

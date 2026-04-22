@@ -29,6 +29,7 @@ type layoutField struct {
 // structLayout is the cached result of walking a struct type's fields.
 type structLayout struct {
 	fields []layoutField
+	byName map[string]int // name -> index into fields
 }
 
 type layoutKey struct {
@@ -77,7 +78,11 @@ func getLayout(typ reflect.Type, convention encoding.NamingConvention, unmarshal
 	}
 	order = order[:l]
 
-	layout := &structLayout{fields: order}
+	byName := make(map[string]int, len(order))
+	for i := range order {
+		byName[order[i].Options.Name] = i
+	}
+	layout := &structLayout{fields: order, byName: byName}
 	v, _ := layoutCache.LoadOrStore(key, layout)
 	return v.(*structLayout)
 }
@@ -144,6 +149,23 @@ func VisibleFields(val reflect.Value, convention encoding.NamingConvention, unma
 		byName[lf.Options.Name] = sf
 	}
 	return order, byName
+}
+
+// LookupField returns the StructField for the given serialized name without
+// allocating a full field map. It is the preferred hot path for unmarshalers
+// that perform per-key lookups rather than full iteration.
+func LookupField(val reflect.Value, convention encoding.NamingConvention, unmarshaler interface{}, name string) (StructField, bool) {
+	layout := getLayout(val.Type(), convention, unmarshaler)
+	i, ok := layout.byName[name]
+	if !ok {
+		return StructField{}, false
+	}
+	lf := &layout.fields[i]
+	return StructField{
+		StructField: lf.StructField,
+		Value:       val.FieldByIndex(lf.Index),
+		Options:     lf.Options,
+	}, true
 }
 
 func VisibleFieldsAsMapEntries(val reflect.Value, convention encoding.NamingConvention, marshaler interface{}) []MapEntry {
