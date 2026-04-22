@@ -263,16 +263,30 @@ type RegexpMachine struct {
 
 // NewMachine returns a fresh RegexpMachine ready to step through input.
 func (re *Regexp) NewMachine() *RegexpMachine {
+	// Pre-allocate state buffers to the program size. Each NFA state is an
+	// instruction index, so len(prog.Inst) is a safe upper bound on the
+	// live-state set at any point. This avoids append-growth allocations
+	// inside Step for typical inputs.
+	n := len(re.prog.Inst)
 	caps := make([]int, re.prog.NumCap)
 	for i := range caps {
 		caps[i] = -1
 	}
 	m := &RegexpMachine{
-		ns:       nfaState{prog: re.prog, cur: []uint32{uint32(re.prog.Start)}},
-		peek:     nfaState{prog: re.prog},
+		ns: nfaState{
+			prog: re.prog,
+			cur:  make([]uint32, 0, n),
+			next: make([]uint32, 0, n),
+		},
+		peek: nfaState{
+			prog: re.prog,
+			cur:  make([]uint32, 0, n),
+			next: make([]uint32, 0, n),
+		},
 		last:     -1,
 		captures: caps,
 	}
+	m.ns.cur = append(m.ns.cur, uint32(re.prog.Start))
 	// Eagerly detect acceptance of the empty string.
 	m.peek.cur = append(m.peek.cur[:0], m.ns.cur...)
 	m.peek.expand(0, m.captures, &m.last)
