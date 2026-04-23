@@ -12,6 +12,7 @@ import (
 	"math"
 	"math/big"
 	"strings"
+	"sync"
 
 	. "snai.pe/boa/syntax"
 )
@@ -26,6 +27,13 @@ type Schema struct {
 	shorthands map[string]string
 	resolvers  []resolver
 	processors map[string]func(context.Context, Node, TaggedValue) (Value, error)
+
+	// resolversByFirstByte maps each ASCII first-byte value (0–127) to the
+	// indices of resolvers whose regexp can possibly match a scalar starting
+	// with that byte. Built lazily on first parse by buildFirstByteDispatch
+	// and cached until the resolver set changes via firstByteOnce.
+	firstByteOnce        sync.Once
+	resolversByFirstByte [128][]int
 
 	// Strict-mode restrictions applied via Option(). Each flag independently
 	// rejects one YAML feature at parse time.
@@ -148,9 +156,28 @@ func (schema *Schema) resolve(scalar string) (string, error) {
 	return "", fmt.Errorf("unresolvable scalar %q: scalar does not match any known tag in %s schema", scalar, schema.name)
 }
 
+// buildFirstByteDispatch populates resolversByFirstByte: for each ASCII byte b,
+// the slice lists the resolver indices whose regexp can begin with b.
+func (schema *Schema) buildFirstByteDispatch() {
+	for b := 0; b < 128; b++ {
+		schema.resolversByFirstByte[b] = schema.resolversByFirstByte[b][:0]
+	}
+	for i, r := range schema.resolvers {
+		m := r.regexp.NewMachine()
+		for b := 0; b < 128; b++ {
+			m.Reset()
+			next, _ := m.Step(rune(b))
+			if next != nil || m.FullMatch() {
+				schema.resolversByFirstByte[b] = append(schema.resolversByFirstByte[b], i)
+			}
+		}
+	}
+}
+
 // newResolverMachines creates a set of RegexpMachine instances from the
 // schema's resolvers, for lockstep NFA execution at lex time.
 func (schema *Schema) newResolverMachines() ([]*RegexpMachine, []string) {
+	schema.firstByteOnce.Do(schema.buildFirstByteDispatch)
 	machines := make([]*RegexpMachine, len(schema.resolvers))
 	tags := make([]string, len(schema.resolvers))
 	for i, r := range schema.resolvers {
@@ -253,6 +280,7 @@ func (schema *Schema) Type(tag, re string, processor func(context.Context, Node,
 		schema.resolvers = append(schema.resolvers, resolver{})
 		copy(schema.resolvers[pos+1:], schema.resolvers[pos:])
 		schema.resolvers[pos] = r
+		schema.firstByteOnce = sync.Once{}
 	}
 	schema.processors[tag] = processor
 	return schema

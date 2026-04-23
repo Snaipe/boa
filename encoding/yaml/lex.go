@@ -121,6 +121,7 @@ type lexerState struct {
 	// scalar after chompScalar produces the final string.
 	resolverMachines []*RegexpMachine
 	resolverTags     []string
+	resolversByFirstByte [][]int
 
 	// Scalar lexing context: parameters stored by lexScalar, consumed by
 	// lexScalarBody and emitScalar. Avoids heap-allocating a closure per scalar.
@@ -788,14 +789,37 @@ type resolvedScalar struct {
 	Tag   string
 }
 
-// resolveScalarTag runs all resolver machines in lockstep on scalar and
-// returns the tag of the first fully-matching machine (in priority order),
-// or "" if none match.
+// resolveScalarTag runs resolver machines on scalar and returns the tag of
+// the first fully-matching machine (in priority order), or "" if none match.
+// For non-empty ASCII scalars, the first-byte dispatch table is used to skip
+// NFA machines that cannot possibly match, reducing work to the relevant subset.
 func (state *lexerState) resolveScalarTag(scalar string) string {
 	machines := state.resolverMachines
 	if len(machines) == 0 {
 		return ""
 	}
+
+	// Fast path: first-byte dispatch to skip machines that cannot match.
+	if len(scalar) > 0 && scalar[0] < 128 {
+		b := scalar[0]
+		indices := state.resolversByFirstByte[b]
+		for _, i := range indices {
+			machines[i].Reset()
+		}
+		for _, r := range scalar {
+			for _, i := range indices {
+				machines[i].Step(r)
+			}
+		}
+		for _, i := range indices {
+			if machines[i].FullMatch() {
+				return state.resolverTags[i]
+			}
+		}
+		return ""
+	}
+
+	// Fallback: empty scalar or non-ASCII first byte — run all machines.
 	for _, m := range machines {
 		m.Reset()
 	}

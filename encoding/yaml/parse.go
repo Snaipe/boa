@@ -55,6 +55,7 @@ type parser struct {
 func newParser(ctx context.Context, in io.Reader, schema *Schema) Parser {
 	lexer, lexerState := newLexer(ctx, in)
 	lexerState.resolverMachines, lexerState.resolverTags = schema.newResolverMachines()
+	lexerState.resolversByFirstByte = schema.resolversByFirstByte[:]
 	return &parser{
 		lexer:            lexer,
 		lexerState:       lexerState,
