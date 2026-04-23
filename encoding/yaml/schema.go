@@ -35,6 +35,10 @@ type Schema struct {
 	firstByteOnce        sync.Once
 	resolversByFirstByte [128][]int
 
+	// resolverPool stores *resolverMachineSet values for reuse across parses.
+	// Machines are reset on Get; tags are static and reused as-is.
+	resolverPool sync.Pool
+
 	// Strict-mode restrictions applied via Option(). Each flag independently
 	// rejects one YAML feature at parse time.
 	rejectExplicitTags  bool // reject any !tag or !!tag annotation
@@ -42,6 +46,11 @@ type Schema struct {
 	rejectFlowStyle     bool // reject {...} flow mappings and [...] flow sequences
 	emptyScalarIsString bool // decode empty/absent scalars as "" instead of nil
 	rejectDuplicateKeys bool // reject mapping nodes with duplicate string keys
+}
+
+type resolverMachineSet struct {
+	machines []*RegexpMachine
+	tags     []string
 }
 
 var (
@@ -174,17 +183,27 @@ func (schema *Schema) buildFirstByteDispatch() {
 	}
 }
 
-// newResolverMachines creates a set of RegexpMachine instances from the
-// schema's resolvers, for lockstep NFA execution at lex time.
-func (schema *Schema) newResolverMachines() ([]*RegexpMachine, []string) {
+// newResolverMachines returns a set of RegexpMachine instances for lockstep
+// NFA execution at lex time, borrowing from the schema's pool when possible.
+// The caller must invoke the returned done func when the machines are no
+// longer needed so they can be returned to the pool.
+func (schema *Schema) newResolverMachines() ([]*RegexpMachine, []string, func()) {
 	schema.firstByteOnce.Do(schema.buildFirstByteDispatch)
+	if v := schema.resolverPool.Get(); v != nil {
+		set := v.(*resolverMachineSet)
+		for _, m := range set.machines {
+			m.Reset()
+		}
+		return set.machines, set.tags, func() { schema.resolverPool.Put(set) }
+	}
 	machines := make([]*RegexpMachine, len(schema.resolvers))
 	tags := make([]string, len(schema.resolvers))
 	for i, r := range schema.resolvers {
 		machines[i] = r.regexp.NewMachine()
 		tags[i] = r.tag
 	}
-	return machines, tags
+	set := &resolverMachineSet{machines, tags}
+	return machines, tags, func() { schema.resolverPool.Put(set) }
 }
 
 func (schema *Schema) Tag(alias, tag string) *Schema {
