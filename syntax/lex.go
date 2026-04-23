@@ -128,6 +128,51 @@ func (b *backbuffer) unread() (rune, int, Cursor, Cursor) {
 
 type StateFunc func(*Lexer) StateFunc
 
+// tokenQueue is a fixed-capacity ring buffer holding up to 2 tokens between
+// Emit/Error calls and the next Next() call. Once close() is called the last
+// token becomes sticky: next() keeps returning it without consuming it, so
+// every subsequent Next() call sees the same EOF/error token.
+type tokenQueue struct {
+	buf    [2]Token
+	head   int
+	len    int
+	closed bool
+}
+
+func (q *tokenQueue) push(tok Token) {
+	if q.len >= len(q.buf) {
+		panic("syntax: lexer token queue overflow")
+	}
+	q.buf[(q.head+q.len)%len(q.buf)] = tok
+	q.len++
+}
+
+func (q *tokenQueue) close(tok Token) {
+	q.push(tok)
+	q.closed = true
+}
+
+// next returns the next queued token. Once closed, the last token is returned
+// on every call without being consumed. Returns (Token{}, false) if empty.
+func (q *tokenQueue) next() (Token, bool) {
+	if q.len == 0 {
+		return Token{}, false
+	}
+	tok := q.buf[q.head]
+	// A state may emit a value token then immediately call Error (e.g. on EOF
+	// mid-token), leaving more than one token queued with closed == true.
+	// Drain normally until the last token, then keep it sticky.
+	if !q.closed || q.len > 1 {
+		q.head = (q.head + 1) % len(q.buf)
+		q.len--
+	}
+	return tok, true
+}
+
+func (q *tokenQueue) reset() {
+	*q = tokenQueue{}
+}
+
 type Lexer struct {
 	// The input of this lexer. Typically a bufio.Reader.
 	Input io.RuneReader
@@ -149,7 +194,7 @@ type Lexer struct {
 	init   StateFunc    // initial state
 	state  StateFunc    // current state
 	token  bytes.Buffer // current token
-	tokens chan Token   // token ring buffer
+	queue  tokenQueue   // pending tokens between Emit/Error and Next
 	prev   backbuffer   // stashed runes for UnreadRune
 	unread int          // number of unread bytes
 	// Done is called once when the lexer terminates (after the EOF or error
@@ -183,25 +228,24 @@ func (l *Lexer) Reset() {
 	l.NextPosition = Cursor{1, 1}
 	l.Position = l.NextPosition
 	l.TokenPosition = l.NextPosition
-	l.tokens = make(chan Token, 2)
+	l.queue.reset()
 	l.token.Reset()
 }
 
 func (l *Lexer) Next() Token {
 	for {
-		select {
-		case <-l.Context.Done():
+		if tok, ok := l.queue.next(); ok {
+			return tok
+		}
+		if err := l.Context.Err(); err != nil {
 			return Token{
 				Type:  TokenError,
-				Value: &Error{Cursor: l.Position, Err: l.Context.Err()},
+				Value: &Error{Cursor: l.Position, Err: err},
 				Start: l.Position,
 				End:   l.Position,
 			}
-		case token := <-l.tokens:
-			return token
-		default:
-			l.state = l.state(l)
 		}
+		l.state = l.state(l)
 	}
 }
 
@@ -221,9 +265,8 @@ func (l *Lexer) Error(err error) StateFunc {
 		Start: l.TokenPosition,
 		End:   l.Position,
 	}
-	l.tokens <- token
+	l.queue.close(token)
 	l.TokenPosition = l.NextPosition
-	close(l.tokens)
 	if l.Done != nil {
 		l.Done()
 	}
@@ -235,15 +278,14 @@ func (l *Lexer) Errorf(format string, args ...interface{}) StateFunc {
 }
 
 func (l *Lexer) Emit(typ TokenType, val interface{}) {
-	token := Token{
+	l.queue.push(Token{
 		Type:  typ,
 		Raw:   l.Token(),
 		Value: val,
 		Start: l.TokenPosition,
 		End:   l.Position,
-	}
+	})
 	l.token.Reset()
-	l.tokens <- token
 	l.TokenPosition = l.NextPosition
 }
 
@@ -465,7 +507,7 @@ func (l *Lexer) PushBack(s string) {
 // EmitRaw emits a pre-built token directly to the token stream.
 func (l *Lexer) EmitRaw(tok Token) {
 	l.token.Reset()
-	l.tokens <- tok
+	l.queue.push(tok)
 	l.TokenPosition = l.NextPosition
 }
 
