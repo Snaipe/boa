@@ -152,6 +152,9 @@ type Lexer struct {
 	tokens chan Token   // token ring buffer
 	prev   backbuffer   // stashed runes for UnreadRune
 	unread int          // number of unread bytes
+	// Done is called once when the lexer terminates (after the EOF or error
+	// token is sent). Use it to return per-parse resources to a sync.Pool.
+	Done func()
 
 	// TODO: consider unifying pushback with prev (backbuffer) — they serve
 	// different access patterns today but overlap in purpose.
@@ -221,6 +224,9 @@ func (l *Lexer) Error(err error) StateFunc {
 	l.tokens <- token
 	l.TokenPosition = l.NextPosition
 	close(l.tokens)
+	if l.Done != nil {
+		l.Done()
+	}
 	return nil
 }
 

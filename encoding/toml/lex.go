@@ -11,6 +11,7 @@ import (
 	"io"
 	"math"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -62,18 +63,27 @@ type ndkRunner struct {
 	snap ndkSnap
 }
 
+var ndkRunnerPool = sync.Pool{
+	New: func() any {
+		machines := ndkMachines()
+		runners := make([]ndkRunner, len(machines))
+		for i := range machines {
+			runners[i].rm = machines[i].re.NewMachine()
+			runners[i].emit = machines[i].emit
+		}
+		return &runners
+	},
+}
+
 func newLexer(ctx context.Context, input io.Reader) *Lexer {
-	machines := ndkMachines()
-	runners := make([]ndkRunner, len(machines))
-	for i := range machines {
-		runners[i].rm = machines[i].re.NewMachine()
-		runners[i].emit = machines[i].emit
-	}
+	runnersPtr := ndkRunnerPool.Get().(*[]ndkRunner)
 	state := lexerState{
 		expectKey:  true,
-		ndkRunners: runners,
+		ndkRunners: *runnersPtr,
 	}
-	return NewLexer(ctx, input, state.lex)
+	l := NewLexer(ctx, input, state.lex)
+	l.Done = func() { ndkRunnerPool.Put(runnersPtr) }
+	return l
 }
 
 func (state *lexerState) acceptNewline(l *Lexer) error {
