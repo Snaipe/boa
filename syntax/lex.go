@@ -230,20 +230,37 @@ func (l *Lexer) Reset() {
 	l.TokenPosition = l.NextPosition
 	l.queue.reset()
 	l.token.Reset()
+	l.prev = backbuffer{}
+	l.unread = 0
+	l.pushback = l.pushback[:0]
+	l.pboff = 0
 }
 
-func (l *Lexer) Next() Token {
+func (l *Lexer) Next() (tok Token) {
+	// Call Done once the terminal token is about to be returned. Doing it here
+	// -- after l.state = nil has been assigned -- prevents the pool-reuse race
+	// where another goroutine writes to l.state before this assignment
+	// completes. The deferred form also handles panics in state functions.
+	defer func() {
+		if l.Done != nil && (tok.Type == TokenEOF || tok.Type == TokenError) {
+			done := l.Done
+			l.Done = nil
+			done()
+		}
+	}()
 	for {
-		if tok, ok := l.queue.next(); ok {
-			return tok
+		var ok bool
+		if tok, ok = l.queue.next(); ok {
+			return
 		}
 		if err := l.Context.Err(); err != nil {
-			return Token{
+			tok = Token{
 				Type:  TokenError,
 				Value: &Error{Cursor: l.Position, Err: err},
 				Start: l.Position,
 				End:   l.Position,
 			}
+			return
 		}
 		l.state = l.state(l)
 	}
@@ -267,9 +284,6 @@ func (l *Lexer) Error(err error) StateFunc {
 	}
 	l.queue.close(token)
 	l.TokenPosition = l.NextPosition
-	if l.Done != nil {
-		l.Done()
-	}
 	return nil
 }
 
