@@ -236,6 +236,16 @@ func (l *Lexer) Reset() {
 	l.pboff = 0
 }
 
+// Reinit prepares l for a new parse without allocating. It is equivalent to
+// NewLexer but reuses the existing Lexer struct. Set l.Done before calling
+// Reinit if pool cleanup is needed.
+func (l *Lexer) Reinit(ctx context.Context, input io.RuneReader, init StateFunc) {
+	l.Input = input
+	l.Context = ctx
+	l.init = init
+	l.Reset()
+}
+
 func (l *Lexer) Next() (tok Token) {
 	// Call Done once the terminal token is about to be returned. Doing it here
 	// -- after l.state = nil has been assigned -- prevents the pool-reuse race
