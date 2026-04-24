@@ -270,7 +270,7 @@ func (state *lexerState) lexString(l *Lexer, delim rune) StateFunc {
 				case 't':
 					val.WriteRune('\t')
 				case 'u':
-					codepoint, err := parseUnicodeEscape(l)
+					codepoint, err := l.ParseUnicodeEscape(4)
 					if err != nil {
 						return l.Error(err)
 					}
@@ -283,34 +283,6 @@ func (state *lexerState) lexString(l *Lexer, delim rune) StateFunc {
 	}
 }
 
-func parseUnicodeEscape(l *Lexer) (rune, error) {
-	var codepoint rune
-	for i := 0; i < 4; i++ {
-		r, err := l.AcceptFunc(func(r rune) bool {
-			return strings.IndexRune("0123456789abcdefABCDEF", r) != -1
-		})
-		if err != nil {
-			if err == io.EOF {
-				err = io.ErrUnexpectedEOF
-			}
-			return 0, err
-		}
-
-		var digit rune
-		switch {
-		case r >= 'a':
-			digit = 10 + r - 'a'
-		case r >= 'A':
-			digit = 10 + r - 'A'
-		case r >= '0':
-			digit = r - '0'
-		default:
-			panic("programming error: got non-hex character")
-		}
-		codepoint = codepoint | (digit << (4 * (3 - int32(i))))
-	}
-	return codepoint, nil
-}
 
 func isIdentifierChar(r rune, i int) bool {
 	// https://262.ecma-international.org/5.1/#sec-7.6
@@ -342,7 +314,7 @@ func (state *lexerState) lexIdentifier(l *Lexer) StateFunc {
 			if _, err := l.AcceptRune('u'); err != nil {
 				return l.Error(err)
 			}
-			codepoint, err := parseUnicodeEscape(l)
+			codepoint, err := l.ParseUnicodeEscape(4)
 			if err != nil {
 				return l.Error(err)
 			}

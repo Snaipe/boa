@@ -553,5 +553,11 @@ func (l *Lexer) ParseUnicodeEscape(length int) (rune, error) {
 		}
 		codepoint = codepoint | (digit << (4 * (length - 1 - i)))
 	}
+	if uint32(codepoint) > uint32(utf8.MaxRune) {
+		return 0, fmt.Errorf("invalid unicode escape: codepoint U+%X exceeds maximum U+10FFFF", uint32(codepoint))
+	}
+	if !utf8.ValidRune(codepoint) {
+		return 0, fmt.Errorf("invalid unicode escape: codepoint U+%04X is not a valid Unicode scalar value", codepoint)
+	}
 	return codepoint, nil
 }

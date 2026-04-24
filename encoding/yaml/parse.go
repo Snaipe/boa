@@ -26,9 +26,8 @@ type TaggedValue struct {
 }
 
 type parser struct {
-	lexer      *Lexer
+	ParserBase
 	lexerState *lexerState
-	prev       []Token
 	anchors    map[string]Value
 	schema     *Schema
 	ctx        context.Context
@@ -63,7 +62,7 @@ func newParser(ctx context.Context, in io.Reader, schema *Schema) Parser {
 		lexDone()
 	}
 	return &parser{
-		lexer:            lexer,
+		ParserBase:       ParserBase{Lexer: lexer},
 		lexerState:       lexerState,
 		anchors:          make(map[string]Value),
 		schema:           schema,
@@ -73,31 +72,6 @@ func newParser(ctx context.Context, in io.Reader, schema *Schema) Parser {
 	}
 }
 
-func (p *parser) rawNext() Token {
-	if len(p.prev) > 0 {
-		last := len(p.prev) - 1
-		tok := p.prev[last]
-		p.prev = p.prev[:last]
-		return tok
-	}
-	return p.lexer.Next()
-}
-
-func (p *parser) back(toks ...Token) {
-	for i := len(toks) - 1; i >= 0; i-- {
-		p.prev = append(p.prev, toks[i])
-	}
-}
-
-func (p *parser) fail(tok Token, err error) {
-	if tok.Type == TokenError {
-		panic(tok.Value.(error))
-	}
-	if err == nil {
-		err = fmt.Errorf("unexpected token %v", tok.Type)
-	}
-	panic(&Error{Cursor: tok.Start, Err: err})
-}
 
 // col returns the 0-indexed column position of a token.
 func col(tok Token) int {
@@ -110,18 +84,7 @@ func col(tok Token) int {
 // skip reads and discards tokens of the allowed types, collecting them if
 // collect is non-nil, then returns the first non-allowed token.
 func (p *parser) skip(collect *[]Token, allowed ...TokenType) Token {
-	for {
-		tok := p.rawNext()
-		if tok.Type == TokenError {
-			p.fail(tok, nil)
-		}
-		if !tok.IsAny(allowed...) {
-			return tok
-		}
-		if collect != nil {
-			*collect = append(*collect, tok)
-		}
-	}
+	return p.Skip(collect, allowed...)
 }
 
 // skipBlank skips whitespace, comments, newlines, and indent tokens.
@@ -129,9 +92,9 @@ func (p *parser) skip(collect *[]Token, allowed ...TokenType) Token {
 func (p *parser) skipBlank(collect *[]Token) (Token, bool) {
 	crossed := false
 	for {
-		tok := p.rawNext()
+		tok := p.RawNext()
 		if tok.Type == TokenError {
-			p.fail(tok, nil)
+			p.Fail(tok, nil)
 		}
 		switch tok.Type {
 		case TokenWhitespace, TokenComment:
@@ -153,17 +116,7 @@ func (p *parser) Parse() (doc *Document, err error) {
 	if p.eof {
 		return nil, io.EOF
 	}
-	defer func() {
-		if r := recover(); r != nil {
-			if e, ok := r.(*Error); ok {
-				err = e
-			} else if e, ok := r.(error); ok {
-				err = e
-			} else {
-				panic(r)
-			}
-		}
-	}()
+	defer Recover(&err)
 	return p.Document(), nil
 }
 
@@ -196,16 +149,16 @@ func (p *parser) Document() *Document {
 		directive := tok.Value.(string)
 		if isYAMLDirective(directive) {
 			if sawYAML {
-				p.fail(tok, fmt.Errorf("duplicate %%YAML directive in the same document"))
+				p.Fail(tok, fmt.Errorf("duplicate %%YAML directive in the same document"))
 			}
 			sawYAML = true
 			if err := validateYAMLDirective(directive); err != nil {
-				p.fail(tok, err)
+				p.Fail(tok, err)
 			}
 		} else if strings.HasPrefix(directive, "TAG ") {
 			handle, prefix, err := parseTagDirective(directive)
 			if err != nil {
-				p.fail(tok, err)
+				p.Fail(tok, err)
 			}
 			p.docTagShorthands[handle] = prefix
 		}
@@ -216,7 +169,7 @@ func (p *parser) Document() *Document {
 	// Per YAML 1.2 spec §9.2: l-directive-document requires l-directive+ l-explicit-document;
 	// a document with directives MUST be followed by an explicit '---' marker.
 	if sawDirectives && tok.Type != TokenDirectivesEnd {
-		p.fail(tok, fmt.Errorf("YAML directive must be followed by '---' document-start marker"))
+		p.Fail(tok, fmt.Errorf("YAML directive must be followed by '---' document-start marker"))
 	}
 
 	// Optional explicit document start marker (---)
@@ -242,7 +195,7 @@ func (p *parser) Document() *Document {
 		if peekTok.Type == TokenEOF {
 			p.eof = true
 		} else {
-			p.back(peekTok)
+			p.Back(peekTok)
 		}
 		if !sawExplicit {
 			// A bare "..." not preceded by "---" is just a document-end marker
@@ -255,11 +208,11 @@ func (p *parser) Document() *Document {
 		return &Document{Root: &Nil{Node: Node{Tokens: leading}}}
 	case TokenDirectivesEnd:
 		// "---" belongs to the next document; put it back.
-		p.back(tok)
+		p.Back(tok)
 		return &Document{Root: &Nil{Node: Node{Tokens: leading}}}
 	}
 
-	p.back(tok)
+	p.Back(tok)
 	// Use parentIndent=-2 so the modifier empty-node check (col <= parentIndent+1)
 	// never fires at document level (any col >= 0 is valid content).
 	root := p.Value(-2, false)
@@ -280,7 +233,7 @@ func (p *parser) Document() *Document {
 		if peekTok.Type == TokenEOF {
 			p.eof = true
 		} else {
-			p.back(peekTok)
+			p.Back(peekTok)
 		}
 	case TokenDirectivesEnd:
 		// Belongs to the next document. Put back only the whitespace tokens that
@@ -288,13 +241,13 @@ func (p *parser) Document() *Document {
 		// may include a flow document's closing '}' or ']') plus the "---" marker,
 		// so the next Document() call picks them all up as its leading.
 		newlyRead := (*suffix)[preSuffixLen:]
-		p.back(append(newlyRead, trailingTok)...)
+		p.Back(append(newlyRead, trailingTok)...)
 		*suffix = (*suffix)[:preSuffixLen]
 	case TokenEOF:
 		p.eof = true
 	default:
 		// Any other token after the document root is invalid trailing content.
-		p.fail(trailingTok, fmt.Errorf("unexpected token %v after document content", trailingTok.Type))
+		p.Fail(trailingTok, fmt.Errorf("unexpected token %v after document content", trailingTok.Type))
 	}
 
 	// Prepend document-level leading tokens (directives, ---, leading whitespace)
@@ -330,18 +283,18 @@ func (p *parser) value(parentIndent int, flow bool, inline bool) Value {
 		case TokenEOF, TokenDocumentEnd, TokenDirectivesEnd:
 			// fall through to the switch below
 		default:
-			p.back(tok)
+			p.Back(tok)
 			return p.emptyScalar(leading)
 		}
 	}
 
 	switch tok.Type {
 	case TokenEOF, TokenDocumentEnd, TokenDirectivesEnd:
-		p.back(tok)
+		p.Back(tok)
 		return p.emptyScalar(leading)
 	case TokenComma, TokenRBrace, TokenRSquare:
 		if flow {
-			p.back(tok)
+			p.Back(tok)
 			return &Nil{Node: Node{Tokens: leading}}
 		}
 	}
@@ -355,7 +308,7 @@ func (p *parser) value(parentIndent int, flow bool, inline bool) Value {
 	// the check is deferred to the TokenAnchor/Tag case, where a second anchor
 	// after a newline is valid iff it anchors a key inside a new block mapping.
 	if inline && mods.hitSecondAnchor {
-		p.fail(mods.hitSecondAnchorTok, fmt.Errorf("a node may only have one anchor"))
+		p.Fail(mods.hitSecondAnchorTok, fmt.Errorf("a node may only have one anchor"))
 	}
 
 	// If an anchor or tag was followed by a newline and the next token is not
@@ -375,9 +328,9 @@ func (p *parser) value(parentIndent int, flow bool, inline bool) Value {
 			if !isTerminator {
 				// The newline was consumed inside the modifier loop. Restore it so
 				// that parent parsers (e.g. BlockMapContinue) see crossed=true.
-				p.back(Token{Type: TokenNewline}, tok)
+				p.Back(Token{Type: TokenNewline}, tok)
 			} else {
-				p.back(tok)
+				p.Back(tok)
 			}
 			val := p.resolveTaggedEmpty(mods.tag, leading)
 			if mods.anchor != "" {
@@ -391,10 +344,10 @@ func (p *parser) value(parentIndent int, flow bool, inline bool) Value {
 			// An anchor/tag at the mapping level is ambiguous and invalid.
 			if !flow && !isTerminator {
 				if mods.anchor != "" && col(mods.anchorTok) <= parentIndent+1 {
-					p.fail(mods.anchorTok, fmt.Errorf("anchor is not indented enough: must be more than %d columns", parentIndent+1))
+					p.Fail(mods.anchorTok, fmt.Errorf("anchor is not indented enough: must be more than %d columns", parentIndent+1))
 				}
 				if mods.tag != "" && col(mods.tagTok) <= parentIndent+1 {
-					p.fail(mods.tagTok, fmt.Errorf("tag is not indented enough: must be more than %d columns", parentIndent+1))
+					p.Fail(mods.tagTok, fmt.Errorf("tag is not indented enough: must be more than %d columns", parentIndent+1))
 				}
 			}
 		}
@@ -410,7 +363,7 @@ func (p *parser) value(parentIndent int, flow bool, inline bool) Value {
 		isFlowEnd := flow && (tok.Type == TokenComma || tok.Type == TokenRBrace ||
 			tok.Type == TokenRSquare || tok.Type == TokenColon)
 		if isTerminator || isFlowEnd {
-			p.back(tok)
+			p.Back(tok)
 			val := p.resolveTaggedEmpty(mods.tag, leading)
 			if mods.anchor != "" {
 				p.anchors[mods.anchor] = val
@@ -424,12 +377,12 @@ func (p *parser) value(parentIndent int, flow bool, inline bool) Value {
 	switch tok.Type {
 	case TokenAlias:
 		if p.schema.noAnchorsAliases {
-			p.fail(tok, fmt.Errorf("aliases are not allowed in strict mode"))
+			p.Fail(tok, fmt.Errorf("aliases are not allowed in strict mode"))
 		}
 		name := tok.Value.(string)
 		target, ok := p.anchors[name]
 		if !ok {
-			p.fail(tok, fmt.Errorf("undefined alias *%s", name))
+			p.Fail(tok, fmt.Errorf("undefined alias *%s", name))
 		}
 		alias := &Alias{
 			Node:   Node{Tokens: append(leading, tok)},
@@ -447,17 +400,17 @@ func (p *parser) value(parentIndent int, flow bool, inline bool) Value {
 				val = p.BlockMapContinue(entryCol, alias)
 				break
 			}
-			p.back(append(between, colonTok)...)
+			p.Back(append(between, colonTok)...)
 		}
 		// Standalone alias: per YAML 1.2 spec §7.1, cannot have anchor or tag.
 		if mods.anchor != "" || mods.tag != "" {
-			p.fail(tok, fmt.Errorf("alias node cannot have anchor or tag properties"))
+			p.Fail(tok, fmt.Errorf("alias node cannot have anchor or tag properties"))
 		}
 		val = alias
 
 	case TokenLSquare:
 		if p.schema.rejectFlowStyle {
-			p.fail(tok, fmt.Errorf("flow sequences are not allowed in strict mode"))
+			p.Fail(tok, fmt.Errorf("flow sequences are not allowed in strict mode"))
 		}
 		// In inline mode parentIndent is the block indent (e.g. dashIndent), so
 		// subtract 1 to give flowMinIndent = parentIndent+1 rather than +2.
@@ -472,7 +425,7 @@ func (p *parser) value(parentIndent int, flow bool, inline bool) Value {
 
 	case TokenLBrace:
 		if p.schema.rejectFlowStyle {
-			p.fail(tok, fmt.Errorf("flow mappings are not allowed in strict mode"))
+			p.Fail(tok, fmt.Errorf("flow mappings are not allowed in strict mode"))
 		}
 		flowOffset := parentIndent
 		if inline {
@@ -485,25 +438,25 @@ func (p *parser) value(parentIndent int, flow bool, inline bool) Value {
 
 	case TokenDash:
 		if flow {
-			p.fail(tok, fmt.Errorf("block sequence not allowed in flow context"))
+			p.Fail(tok, fmt.Errorf("block sequence not allowed in flow context"))
 		}
 		// In block mode, sequences (l+block-collection) must start on a new line;
 		// they cannot appear on the same line as an anchor/tag or mapping key.
 		// Exception: at the document root (parentIndent == -2) with no modifiers.
 		// In inline mode this guard does not apply (the '-' already crossed a line).
 		if !inline && !crossed && !mods.crossedNewline && (mods.anchor != "" || mods.tag != "" || parentIndent > -2) {
-			p.fail(tok, fmt.Errorf("block sequence cannot appear on the same line as a mapping key or anchor"))
+			p.Fail(tok, fmt.Errorf("block sequence cannot appear on the same line as a mapping key or anchor"))
 		}
 		seqIndent := col(tok)
-		p.back(tok)
+		p.Back(tok)
 		val = p.BlockSeq(seqIndent, leading)
 
 	case TokenQuery:
 		if flow {
-			p.fail(tok, fmt.Errorf("explicit block key '?' not allowed in flow context"))
+			p.Fail(tok, fmt.Errorf("explicit block key '?' not allowed in flow context"))
 		}
 		mapIndent := col(tok)
-		p.back(tok)
+		p.Back(tok)
 		val = p.BlockMapExplicit(mapIndent, leading)
 
 	case TokenScalar, TokenString:
@@ -524,7 +477,7 @@ func (p *parser) value(parentIndent int, flow bool, inline bool) Value {
 				// Per YAML 1.2 spec, block content requires a newline after '---';
 				// only flow nodes may appear on the same line.
 				if !inline && p.dirEndLine > 0 && tok.Start.Line == p.dirEndLine {
-					p.fail(tok, fmt.Errorf("block mapping key not allowed on same line as '---' document-start marker"))
+					p.Fail(tok, fmt.Errorf("block mapping key not allowed on same line as '---' document-start marker"))
 				}
 				key := p.ResolveScalar(tok, leading, "")
 				// Store whitespace-before-colon and the colon itself in key.Suffix
@@ -541,7 +494,7 @@ func (p *parser) value(parentIndent int, flow bool, inline bool) Value {
 				val = p.BlockMapContinue(entryCol, key)
 				break
 			}
-			p.back(append(between, colonTok)...)
+			p.Back(append(between, colonTok)...)
 		}
 		val = p.ResolveScalar(tok, leading, mods.tag)
 		mods.tag = ""
@@ -560,14 +513,14 @@ func (p *parser) value(parentIndent int, flow bool, inline bool) Value {
 			mods.tag = ""
 		} else {
 			// Empty block scalar
-			p.back(scalarTok)
+			p.Back(scalarTok)
 			val = &String{Node: Node{Tokens: leading, Position: tok.Start}, Value: ""}
 		}
 
 	case TokenAnchor, TokenTag:
 		// More than 2 properties: a modifier on the inner node. Recurse with
 		// the inline flag flipped so the two modes alternate correctly.
-		p.back(tok)
+		p.Back(tok)
 		val = p.value(parentIndent, flow, !inline)
 		if !inline && mods.hitSecondAnchor {
 			// When we arrive here because of a second anchor after a newline, the
@@ -575,7 +528,7 @@ func (p *parser) value(parentIndent int, flow bool, inline bool) Value {
 			// anchors a key or inner node. If the content is not a *Map, both anchors
 			// alias the same non-Map node — that's two anchors on one node: invalid.
 			if _, ok := val.(*Map); !ok {
-				p.fail(mods.hitSecondAnchorTok, fmt.Errorf("a node may only have one anchor"))
+				p.Fail(mods.hitSecondAnchorTok, fmt.Errorf("a node may only have one anchor"))
 			}
 		}
 		// Prepend accumulated leading tokens (anchor/tag/newline from outer node)
@@ -586,7 +539,7 @@ func (p *parser) value(parentIndent int, flow bool, inline bool) Value {
 		if flow {
 			// In flow context, ':' signals an empty implicit key (e.g. "{: val}",
 			// "[: val]"). Return Nil and push the colon back so the caller handles it.
-			p.back(tok)
+			p.Back(tok)
 			return p.resolveTaggedEmpty(mods.tag, leading)
 		}
 		// Block context: ':' with no preceding key → empty implicit key (e-node).
@@ -601,11 +554,11 @@ func (p *parser) value(parentIndent int, flow bool, inline bool) Value {
 			val = p.BlockMapContinue(entryCol, key)
 			break
 		}
-		p.fail(tok, fmt.Errorf("unexpected token ':' in value context"))
+		p.Fail(tok, fmt.Errorf("unexpected token ':' in value context"))
 		panic("unreachable")
 
 	default:
-		p.fail(tok, fmt.Errorf("unexpected token %v in value context", tok.Type))
+		p.Fail(tok, fmt.Errorf("unexpected token %v in value context", tok.Type))
 		panic("unreachable")
 	}
 
@@ -653,12 +606,12 @@ func (p *parser) BlockSeq(seqIndent int, leading []Token) *List {
 		case TokenEOF, TokenDocumentEnd, TokenDirectivesEnd:
 			// Store inter-entry trailing whitespace in the list suffix for round-trip.
 			lst.Node.Suffix = append(lst.Node.Suffix, skipped...)
-			p.back(tok)
+			p.Back(tok)
 			return lst
 		}
 
 		if tok.Type != TokenDash || col(tok) != seqIndent {
-			p.back(append(skipped, tok)...)
+			p.Back(append(skipped, tok)...)
 			return lst
 		}
 
@@ -692,11 +645,11 @@ func (p *parser) SeqItem(dash Token, dashIndent int, preceding []Token) Value {
 	switch tok.Type {
 	case TokenNewline, TokenComment, TokenEOF, TokenDocumentEnd, TokenDirectivesEnd:
 		// Value is on the next line(s).
-		p.back(tok)
+		p.Back(tok)
 		item = p.Value(dashIndent, false)
 	default:
 		// Value is on the same line as '-'.
-		p.back(tok)
+		p.Back(tok)
 		item = p.InlineValue(dashIndent, false)
 	}
 
@@ -748,13 +701,13 @@ func (p *parser) BlockMapContinue(mapIndent int, firstKey Value) *Map {
 		case TokenEOF, TokenDocumentEnd, TokenDirectivesEnd:
 			// Store trailing inter-entry whitespace in the map suffix for round-trip.
 			m.Node.Suffix = append(m.Node.Suffix, skipped...)
-			p.back(tok)
+			p.Back(tok)
 			return m
 		}
 
 		// A new entry must be at the same indent, on a new line.
 		if !crossed || col(tok) != mapIndent {
-			p.back(append(skipped, tok)...)
+			p.Back(append(skipped, tok)...)
 			return m
 		}
 
@@ -762,14 +715,14 @@ func (p *parser) BlockMapContinue(mapIndent int, firstKey Value) *Map {
 		case TokenScalar, TokenString:
 			// Implicit keys must be single-line per YAML 1.2 spec §6.3.2.
 			if strings.ContainsAny(tok.Raw, "\r\n") {
-				p.back(tok)
+				p.Back(tok)
 				return m
 			}
 			var between []Token
 			colonTok := p.skip(&between, TokenWhitespace)
 			if colonTok.Type != TokenColon || !p.peekIsKeyEnd() {
 				// Not a key: end of map.
-				p.back(tok, colonTok)
+				p.Back(tok, colonTok)
 				return m
 			}
 			// skipped = inter-entry whitespace; between = ws between key and colon.
@@ -777,7 +730,7 @@ func (p *parser) BlockMapContinue(mapIndent int, firstKey Value) *Map {
 			if seenKeys != nil {
 				if s, ok := key.(*String); ok {
 					if seenKeys[s.Value] {
-						p.fail(tok, fmt.Errorf("duplicate key %q", s.Value))
+						p.Fail(tok, fmt.Errorf("duplicate key %q", s.Value))
 					}
 					seenKeys[s.Value] = true
 				}
@@ -788,7 +741,7 @@ func (p *parser) BlockMapContinue(mapIndent int, firstKey Value) *Map {
 
 		case TokenQuery:
 			// Explicit key within an existing block map.
-			p.back(tok)
+			p.Back(tok)
 			subMap := p.BlockMapExplicit(mapIndent, skipped)
 			// Merge entries into current map.
 			m.Entries = append(m.Entries, subMap.(*Map).Entries...)
@@ -796,12 +749,12 @@ func (p *parser) BlockMapContinue(mapIndent int, firstKey Value) *Map {
 		case TokenAlias:
 			// Alias as a mapping key (rare but valid).
 			if p.schema.noAnchorsAliases {
-				p.fail(tok, fmt.Errorf("aliases are not allowed in strict mode"))
+				p.Fail(tok, fmt.Errorf("aliases are not allowed in strict mode"))
 			}
 			name := tok.Value.(string)
 			target, ok := p.anchors[name]
 			if !ok {
-				p.fail(tok, fmt.Errorf("undefined alias *%s", name))
+				p.Fail(tok, fmt.Errorf("undefined alias *%s", name))
 			}
 			alias := &Alias{
 				Node:   Node{Tokens: append(skipped, tok)},
@@ -811,7 +764,7 @@ func (p *parser) BlockMapContinue(mapIndent int, firstKey Value) *Map {
 			var betweenColon []Token
 			colonTok := p.skip(&betweenColon, TokenWhitespace)
 			if colonTok.Type != TokenColon {
-				p.back(tok, colonTok)
+				p.Back(tok, colonTok)
 				return m
 			}
 			alias.Base().Suffix = append(betweenColon, colonTok)
@@ -825,21 +778,21 @@ func (p *parser) BlockMapContinue(mapIndent int, firstKey Value) *Map {
 			// follows the modifiers is not a usable implicit key.
 			tok, mods := p.parseModifiers(tok, &skipped)
 			if tok.Type != TokenScalar && tok.Type != TokenString {
-				p.back(append(skipped, tok)...)
+				p.Back(append(skipped, tok)...)
 				return m
 			}
 			var between []Token
 			colonTok := p.skip(&between, TokenWhitespace)
 			if colonTok.Type != TokenColon || !p.peekIsKeyEnd() {
-				p.back(append(skipped, tok)...)
-				p.back(append(between, colonTok)...)
+				p.Back(append(skipped, tok)...)
+				p.Back(append(between, colonTok)...)
 				return m
 			}
 			key := p.ResolveScalar(tok, skipped, mods.tag)
 			if seenKeys != nil {
 				if s, ok := key.(*String); ok {
 					if seenKeys[s.Value] {
-						p.fail(tok, fmt.Errorf("duplicate key %q", s.Value))
+						p.Fail(tok, fmt.Errorf("duplicate key %q", s.Value))
 					}
 					seenKeys[s.Value] = true
 				}
@@ -854,7 +807,7 @@ func (p *parser) BlockMapContinue(mapIndent int, firstKey Value) *Map {
 		case TokenColon:
 			// Empty implicit key in a subsequent block mapping entry (e.g. ": val").
 			if !p.peekIsKeyEnd() {
-				p.back(tok)
+				p.Back(tok)
 				return m
 			}
 			key := &Nil{Node: Node{Tokens: skipped}}
@@ -863,7 +816,7 @@ func (p *parser) BlockMapContinue(mapIndent int, firstKey Value) *Map {
 			m.Entries = append(m.Entries, &MapEntry{Key: key, Value: val})
 
 		default:
-			p.back(tok)
+			p.Back(tok)
 			return m
 		}
 	}
@@ -892,12 +845,12 @@ func (p *parser) BlockMapExplicit(mapIndent int, leading []Token) Value {
 		case TokenEOF, TokenDocumentEnd, TokenDirectivesEnd:
 			// Store trailing whitespace in map suffix for round-trip encoding.
 			m.Node.Suffix = append(m.Node.Suffix, skipped...)
-			p.back(tok)
+			p.Back(tok)
 			return m
 		}
 
 		if crossed && col(tok) != mapIndent {
-			p.back(append(skipped, tok)...)
+			p.Back(append(skipped, tok)...)
 			return m
 		}
 
@@ -913,7 +866,7 @@ func (p *parser) BlockMapExplicit(mapIndent int, leading []Token) Value {
 			// the standard mapIndent enforcement.
 			var keyPeekLeading []Token
 			keyPeekTok, keyCrossed := p.skipBlank(&keyPeekLeading)
-			p.back(append(keyPeekLeading, keyPeekTok)...)
+			p.Back(append(keyPeekLeading, keyPeekTok)...)
 
 			var key Value
 			if keyCrossed {
@@ -943,7 +896,7 @@ func (p *parser) BlockMapExplicit(mapIndent int, leading []Token) Value {
 				// or as the value (e.g. ': key: val').
 				val = p.InlineValue(-2, false)
 			} else {
-				p.back(append(peekSkipped, peekTok)...)
+				p.Back(append(peekSkipped, peekTok)...)
 				val = &Nil{}
 			}
 			m.Entries = append(m.Entries, &MapEntry{Key: key, Value: val})
@@ -953,7 +906,7 @@ func (p *parser) BlockMapExplicit(mapIndent int, leading []Token) Value {
 			var between []Token
 			colonTok := p.skip(&between, TokenWhitespace)
 			if colonTok.Type != TokenColon {
-				p.back(tok, colonTok)
+				p.Back(tok, colonTok)
 				return m
 			}
 			key := p.ResolveScalar(tok, skipped, "")
@@ -964,7 +917,7 @@ func (p *parser) BlockMapExplicit(mapIndent int, leading []Token) Value {
 		case TokenColon:
 			// Empty implicit key in a subsequent explicit-block mapping entry (": val").
 			if !p.peekIsKeyEnd() {
-				p.back(tok)
+				p.Back(tok)
 				return m
 			}
 			key := &Nil{Node: Node{Tokens: skipped}}
@@ -973,7 +926,7 @@ func (p *parser) BlockMapExplicit(mapIndent int, leading []Token) Value {
 			m.Entries = append(m.Entries, &MapEntry{Key: key, Value: val})
 
 		default:
-			p.back(append(skipped, tok)...)
+			p.Back(append(skipped, tok)...)
 			return m
 		}
 	}
@@ -1008,16 +961,16 @@ func (p *parser) FlowSeq(open Token, leading []Token) *List {
 			break
 		}
 		if tok.Type == TokenEOF {
-			p.fail(tok, fmt.Errorf("unexpected EOF in flow sequence"))
+			p.Fail(tok, fmt.Errorf("unexpected EOF in flow sequence"))
 		}
 		// Per YAML 1.2 spec, flow sequence entries must start with a value — a bare
 		// ',' at the beginning of an entry (leading or consecutive comma) is invalid.
 		if tok.Type == TokenComma {
-			p.fail(tok, fmt.Errorf("unexpected ',' in flow sequence: missing value before ','"))
+			p.Fail(tok, fmt.Errorf("unexpected ',' in flow sequence: missing value before ','"))
 		}
 
 		// A flow-seq item may be a flow-pair (implicit key: value).
-		p.back(tok)
+		p.Back(tok)
 		item := p.FlowSeqItem()
 		// Prepend inter-element whitespace to item's Tokens for round-trip.
 		item.Base().Tokens = append(before, item.Base().Tokens...)
@@ -1038,7 +991,7 @@ func (p *parser) FlowSeq(open Token, leading []Token) *List {
 			lst.Node.Suffix = append(lst.Node.Suffix, sep)
 			break
 		}
-		p.fail(sep, fmt.Errorf("expected ',' or ']' in flow sequence, got %v", sep.Type))
+		p.Fail(sep, fmt.Errorf("expected ',' or ']' in flow sequence, got %v", sep.Type))
 	}
 
 	return lst
@@ -1071,7 +1024,7 @@ func (p *parser) FlowSeqItem() Value {
 			key.Base().Suffix = append(append(key.Base().Suffix, beforeColon...), colonTok)
 			val = p.Value(-1, true)
 		} else {
-			p.back(colonTok)
+			p.Back(colonTok)
 			val = &Nil{}
 		}
 		m := &Map{Node: Node{Position: tok.Start}}
@@ -1084,7 +1037,7 @@ func (p *parser) FlowSeqItem() Value {
 		var between []Token
 		colonTok := p.skip(&between, TokenWhitespace)
 		if colonTok.Type == TokenColon {
-			after := p.rawNext()
+			after := p.RawNext()
 			isJSONKey := tok.Type == TokenString
 			isKey := isJSONKey || after.Type == TokenEOF ||
 				after.Type == TokenNewline ||
@@ -1092,13 +1045,13 @@ func (p *parser) FlowSeqItem() Value {
 				after.Type == TokenComma ||
 				after.Type == TokenRSquare ||
 				after.Type == TokenRBrace
-			p.back(after)
+			p.Back(after)
 			if isKey {
 				// Implicit flow keys must be on a single line (YAML 1.2 spec §7.3.2).
 				// The lexer folds continuation lines into the scalar's Raw, so a
 				// newline in Raw means the colon appeared after a line break.
 				if strings.ContainsAny(tok.Raw, "\r\n") {
-					p.fail(colonTok, fmt.Errorf("implicit flow mapping key must be on a single line"))
+					p.Fail(colonTok, fmt.Errorf("implicit flow mapping key must be on a single line"))
 				}
 				key := p.ResolveScalar(tok, nil, "")
 				// Store whitespace-before-colon and colon in key.Suffix for round-trip.
@@ -1112,12 +1065,12 @@ func (p *parser) FlowSeqItem() Value {
 		// Not a flow pair: put the non-colon token back and parse as a plain value.
 		// The whitespace in 'between' was consumed when checking for ':'; attach it
 		// to the parsed node's Suffix so it is emitted verbatim during round-trip.
-		p.back(tok, colonTok)
+		p.Back(tok, colonTok)
 		item := p.Value(-1, true)
 		item.Base().Suffix = append(between, item.Base().Suffix...)
 		return item
 	default:
-		p.back(tok)
+		p.Back(tok)
 		key := p.Value(-1, true)
 		// An anchor, tag, alias, or other complex node may be a flow pair key.
 		// Implicit flow keys must be on a single line — if we crossed a newline
@@ -1126,7 +1079,7 @@ func (p *parser) FlowSeqItem() Value {
 		colonTok, crossedBeforeColon := p.skipBlank(&beforeColon)
 		if colonTok.Type == TokenColon {
 			if crossedBeforeColon {
-				p.fail(colonTok, fmt.Errorf("implicit flow mapping key must be on a single line"))
+				p.Fail(colonTok, fmt.Errorf("implicit flow mapping key must be on a single line"))
 			}
 			key.Base().Suffix = append(append(key.Base().Suffix, beforeColon...), colonTok)
 			val := p.Value(-1, true)
@@ -1136,7 +1089,7 @@ func (p *parser) FlowSeqItem() Value {
 		}
 		// Not a flow pair: attach the whitespace before the non-colon token to the
 		// node's Suffix so it is not lost during round-trip encoding.
-		p.back(colonTok)
+		p.Back(colonTok)
 		key.Base().Suffix = append(key.Base().Suffix, beforeColon...)
 		return key
 	}
@@ -1174,7 +1127,7 @@ func (p *parser) FlowMap(open Token, leading []Token) *Map {
 			break
 		}
 		if tok.Type == TokenEOF {
-			p.fail(tok, fmt.Errorf("unexpected EOF in flow mapping"))
+			p.Fail(tok, fmt.Errorf("unexpected EOF in flow mapping"))
 		}
 
 		// Parse key.
@@ -1187,7 +1140,7 @@ func (p *parser) FlowMap(open Token, leading []Token) *Map {
 			key = p.Value(-1, true)
 			key.Base().Tokens = append(append(before, tok), key.Base().Tokens...)
 		} else {
-			p.back(tok)
+			p.Back(tok)
 			key = p.Value(-1, true)
 			// Prepend inter-entry whitespace to key's Tokens.
 			key.Base().Tokens = append(before, key.Base().Tokens...)
@@ -1204,7 +1157,7 @@ func (p *parser) FlowMap(open Token, leading []Token) *Map {
 		if colonTok.Type == TokenColon {
 			isYAMLKey := keyStartType != TokenQuery && keyStartType != TokenString
 			if isYAMLKey && crossedBeforeColon {
-				p.fail(colonTok, fmt.Errorf("implicit flow mapping key must be on a single line"))
+				p.Fail(colonTok, fmt.Errorf("implicit flow mapping key must be on a single line"))
 			}
 			// Store whitespace-before-colon and colon in key.Suffix for round-trip.
 			key.Base().Suffix = append(append(key.Base().Suffix, beforeColon...), colonTok)
@@ -1213,7 +1166,7 @@ func (p *parser) FlowMap(open Token, leading []Token) *Map {
 			// No colon: key has no value; attach whitespace to key's Suffix so it
 			// is not lost during round-trip encoding (e.g. the space in "{a }").
 			key.Base().Suffix = append(key.Base().Suffix, beforeColon...)
-			p.back(colonTok)
+			p.Back(colonTok)
 			val = &Nil{}
 		}
 
@@ -1234,7 +1187,7 @@ func (p *parser) FlowMap(open Token, leading []Token) *Map {
 			m.Node.Suffix = append(m.Node.Suffix, sep)
 			break
 		}
-		p.fail(sep, fmt.Errorf("expected ',' or '}' in flow mapping, got %v", sep.Type))
+		p.Fail(sep, fmt.Errorf("expected ',' or '}' in flow mapping, got %v", sep.Type))
 	}
 
 	return m
@@ -1384,7 +1337,7 @@ func (p *parser) validateTagHandle(tok Token, tag string) {
 	}
 	handle, _ := p.schema.parseShorthand(tag)
 	if _, ok := p.docTagShorthands[handle]; !ok {
-		p.fail(tok, fmt.Errorf("tag handle %q is not defined in this document", handle))
+		p.Fail(tok, fmt.Errorf("tag handle %q is not defined in this document", handle))
 	}
 }
 
@@ -1421,7 +1374,7 @@ func (p *parser) checkFlowIndent(tok Token, crossed bool) {
 		return
 	}
 	if col(tok) < p.flowMinIndent {
-		p.fail(tok, fmt.Errorf("flow collection continuation line is under-indented (column %d, need ≥ %d)", col(tok), p.flowMinIndent))
+		p.Fail(tok, fmt.Errorf("flow collection continuation line is under-indented (column %d, need ≥ %d)", col(tok), p.flowMinIndent))
 	}
 }
 
@@ -1429,8 +1382,8 @@ func (p *parser) checkFlowIndent(tok Token, crossed bool) {
 // it is a valid end-of-implicit-key indicator (EOF, newline, whitespace, or
 // comment). Used to decide if a colon is a block mapping value separator.
 func (p *parser) peekIsKeyEnd() bool {
-	tok := p.rawNext()
-	p.back(tok)
+	tok := p.RawNext()
+	p.Back(tok)
 	switch tok.Type {
 	case TokenEOF, TokenNewline, TokenWhitespace, TokenComment:
 		return true
@@ -1460,7 +1413,7 @@ func (p *parser) tryAsBlockMapKey(flow bool, val Value, openTok Token, entryCol 
 		val.Base().Suffix = append(append(val.Base().Suffix, between...), colonTok)
 		return p.BlockMapContinue(entryCol, val)
 	}
-	p.back(append(between, colonTok)...)
+	p.Back(append(between, colonTok)...)
 	return val
 }
 
@@ -1490,11 +1443,11 @@ func (p *parser) parseModifiers(tok Token, leading *[]Token) (Token, valueModifi
 		switch tok.Type {
 		case TokenAnchor:
 			if p.schema.noAnchorsAliases {
-				p.fail(tok, fmt.Errorf("anchors are not allowed in strict mode"))
+				p.Fail(tok, fmt.Errorf("anchors are not allowed in strict mode"))
 			}
 			if mods.anchor != "" {
 				if !mods.crossedNewline {
-					p.fail(tok, fmt.Errorf("a node may only have one anchor"))
+					p.Fail(tok, fmt.Errorf("a node may only have one anchor"))
 				}
 				// Second anchor on a new line: it belongs to the content.
 				mods.hitSecondAnchor = true
@@ -1509,7 +1462,7 @@ func (p *parser) parseModifiers(tok Token, leading *[]Token) (Token, valueModifi
 			mods.crossedNewline = mods.crossedNewline || crossed
 		case TokenTag:
 			if p.schema.rejectExplicitTags {
-				p.fail(tok, fmt.Errorf("explicit tags are not allowed in strict mode"))
+				p.Fail(tok, fmt.Errorf("explicit tags are not allowed in strict mode"))
 			}
 			p.validateTagHandle(tok, tok.Value.(string))
 			mods.tag = tok.Value.(string)

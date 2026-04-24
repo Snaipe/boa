@@ -13,7 +13,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 	"unicode/utf8"
 
 	. "snai.pe/boa/syntax"
@@ -204,40 +203,6 @@ func (state *lexerState) lex(l *Lexer) StateFunc {
 	return state.lex
 }
 
-func parseUnicodeEscape(l *Lexer, length int) (rune, error) {
-	var codepoint rune
-	for i := 0; i < length; i++ {
-		r, err := l.AcceptFunc(func(r rune) bool {
-			return strings.IndexRune("0123456789abcdefABCDEF", r) != -1
-		})
-		if err != nil {
-			if err == io.EOF {
-				err = io.ErrUnexpectedEOF
-			}
-			return 0, fmt.Errorf("invalid unicode escape sequence: %w", err)
-		}
-
-		var digit rune
-		switch {
-		case r >= 'a':
-			digit = 10 + r - 'a'
-		case r >= 'A':
-			digit = 10 + r - 'A'
-		case r >= '0':
-			digit = r - '0'
-		default:
-			panic("programming error: got non-hex character")
-		}
-		codepoint = codepoint | (digit << (4 * int32(length-i-1)))
-	}
-	if uint32(codepoint) >= uint32(unicode.MaxRune) {
-		return 0, fmt.Errorf("invalid unicode escape sequence: max rune is \\U0010FFFF")
-	}
-	if !utf8.ValidRune(codepoint) {
-		return 0, fmt.Errorf("invalid unicode escape sequence: rune is not representable in UTF-8")
-	}
-	return codepoint, nil
-}
 
 func (state *lexerState) lexString(l *Lexer, delim rune) StateFunc {
 	return func(l *Lexer) StateFunc {
@@ -395,7 +360,7 @@ func (state *lexerState) lexString(l *Lexer, delim rune) StateFunc {
 					if next == 'U' {
 						length = 8
 					}
-					codepoint, err := parseUnicodeEscape(l, length)
+					codepoint, err := l.ParseUnicodeEscape(length)
 					if err != nil {
 						return l.Error(err)
 					}

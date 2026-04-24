@@ -16,48 +16,18 @@ import (
 )
 
 type parser struct {
-	lexer *Lexer
-	prev  []Token
+	ParserBase
 }
 
 func newParser(ctx context.Context, in io.Reader) Parser {
 	p := parser{
-		lexer: newLexer(ctx, in),
+		ParserBase: ParserBase{Lexer: newLexer(ctx, in)},
 	}
 	return &p
 }
 
-func (p *parser) Next(tokens *[]Token) (token Token) {
-	for {
-		if len(p.prev) > 0 {
-			last := len(p.prev) - 1
-			token, p.prev = p.prev[last], p.prev[:last]
-		} else {
-			token = p.lexer.Next()
-		}
-		switch token.Type {
-		case TokenComment, TokenInlineComment, TokenNewline, TokenWhitespace:
-			if tokens != nil {
-				*tokens = append(*tokens, token)
-			}
-		default:
-			return token
-		}
-	}
-}
-
-func (p *parser) back(tokens ...Token) {
-	for i := len(tokens) - 1; i >= 0; i-- {
-		p.prev = append(p.prev, tokens[i])
-	}
-}
-
-func (p *parser) fail(token Token, err error) {
-	if token.Type == TokenError {
-		panic(token.Value.(error))
-	}
-	err = TokenTypeError{Token: token, Err: err}
-	panic(&Error{Cursor: token.Start, Err: err})
+func (p *parser) Next(tokens *[]Token) Token {
+	return p.Skip(tokens, TokenComment, TokenInlineComment, TokenNewline, TokenWhitespace)
 }
 
 func (p *parser) accept(tokens *[]Token, expect ...TokenType) Token {
@@ -70,22 +40,12 @@ func (p *parser) accept(tokens *[]Token, expect ...TokenType) Token {
 			return tok
 		}
 	}
-	p.fail(tok, UnexpectedTokenError(expect))
+	p.Fail(tok, UnexpectedTokenError(expect))
 	panic("unreachable")
 }
 
 func (p *parser) Parse() (doc *Document, err error) {
-	defer func() {
-		if e := recover(); e != nil {
-			if ee, ok := e.(*Error); ok {
-				err = ee
-			} else if ee, ok := e.(error); ok {
-				err = ee
-			} else {
-				panic(e)
-			}
-		}
-	}()
+	defer Recover(&err)
 	return p.document(), nil
 }
 
@@ -95,7 +55,7 @@ func (p *parser) document() *Document {
 
 	tok := p.Next(&doc.Root.Base().Suffix)
 	if tok.Type != TokenEOF {
-		p.fail(tok, UnexpectedTokenError{TokenEOF})
+		p.Fail(tok, UnexpectedTokenError{TokenEOF})
 	}
 	return doc
 }
@@ -105,10 +65,10 @@ func (p *parser) value() Value {
 	token := p.Next(&leading)
 	switch token.Type {
 	case TokenLBrace:
-		p.back(append(leading, token)...)
+		p.Back(append(leading, token)...)
 		return p.object()
 	case TokenLSquare:
-		p.back(append(leading, token)...)
+		p.Back(append(leading, token)...)
 		return p.list()
 	case TokenString:
 		return &String{Node: Node{Tokens: append(leading, token), Position: token.Start}, Value: token.Value.(string)}
@@ -122,7 +82,7 @@ func (p *parser) value() Value {
 		tokens := append(leading, token)
 		next := p.Next(&tokens)
 		if next.Type != TokenNumber {
-			p.fail(next, UnexpectedTokenError{TokenNumber})
+			p.Fail(next, UnexpectedTokenError{TokenNumber})
 		}
 		var val interface{}
 		if token.Type == TokenMinus {
@@ -139,7 +99,7 @@ func (p *parser) value() Value {
 		}
 		return &Number{Node: Node{Tokens: append(tokens, next), Position: token.Start}, Value: val}
 	default:
-		p.fail(token, ErrUnexpectedToken)
+		p.Fail(token, ErrUnexpectedToken)
 		panic("unreachable")
 	}
 }
@@ -150,7 +110,7 @@ func (p *parser) key() Value {
 	switch token.Type {
 	case TokenIdentifier, TokenString:
 	default:
-		p.fail(token, UnexpectedTokenError{TokenString, TokenIdentifier})
+		p.Fail(token, UnexpectedTokenError{TokenString, TokenIdentifier})
 	}
 	key := &String{
 		Node: Node{
@@ -170,7 +130,7 @@ func (p *parser) object() *Map {
 
 	token := p.Next(&node.Tokens)
 	for token.Type != TokenRBrace {
-		p.back(token)
+		p.Back(token)
 		key := p.key()
 		value := p.value()
 
@@ -182,7 +142,7 @@ func (p *parser) object() *Map {
 			value.Base().Suffix = append(value.Base().Suffix, token)
 			token = p.Next(&value.Base().Suffix)
 		} else if token.Type != TokenRBrace {
-			p.fail(token, UnexpectedTokenError{TokenRBrace})
+			p.Fail(token, UnexpectedTokenError{TokenRBrace})
 		}
 	}
 
@@ -204,7 +164,7 @@ func (p *parser) list() *List {
 
 	token := p.Next(&node.Tokens)
 	for token.Type != TokenRSquare {
-		p.back(token)
+		p.Back(token)
 		entry := p.value()
 		node.Items = append(node.Items, entry)
 
@@ -213,7 +173,7 @@ func (p *parser) list() *List {
 			entry.Base().Suffix = append(entry.Base().Suffix, token)
 			token = p.Next(&entry.Base().Suffix)
 		} else if token.Type != TokenRSquare {
-			p.fail(token, UnexpectedTokenError{TokenRSquare})
+			p.Fail(token, UnexpectedTokenError{TokenRSquare})
 		}
 	}
 
