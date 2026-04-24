@@ -6,7 +6,6 @@
 package syntax
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -174,8 +173,10 @@ func (q *tokenQueue) reset() {
 }
 
 type Lexer struct {
-	// The input of this lexer. Typically a bufio.Reader.
-	Input io.RuneReader
+	// Input is the buffered I/O source for this lexer. State functions
+	// read from it indirectly via ReadRune/UnreadRune; call Input.Reset
+	// to switch the underlying reader without allocating.
+	Input BufRuneReader
 
 	// The cursor position marking the start of the current token.
 	TokenPosition Cursor
@@ -208,19 +209,11 @@ type Lexer struct {
 }
 
 func NewLexer(ctx context.Context, input io.Reader, init StateFunc) *Lexer {
-
-	rscan, ok := input.(io.RuneReader)
-	if !ok {
-		rscan = bufio.NewReader(input)
-	}
-
-	l := Lexer{
-		Input: rscan,
-		init:  init,
-	}
+	l := &Lexer{init: init}
 	l.Context = ctx
+	l.Input.Reset(input)
 	l.Reset()
-	return &l
+	return l
 }
 
 func (l *Lexer) Reset() {
@@ -239,8 +232,8 @@ func (l *Lexer) Reset() {
 // Reinit prepares l for a new parse without allocating. It is equivalent to
 // NewLexer but reuses the existing Lexer struct. Set l.Done before calling
 // Reinit if pool cleanup is needed.
-func (l *Lexer) Reinit(ctx context.Context, input io.RuneReader, init StateFunc) {
-	l.Input = input
+func (l *Lexer) Reinit(ctx context.Context, input io.Reader, init StateFunc) {
+	l.Input.Reset(input)
 	l.Context = ctx
 	l.init = init
 	l.Reset()

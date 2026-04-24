@@ -12,6 +12,7 @@ import (
 	"math"
 	"math/big"
 	"strings"
+	"sync"
 	"unicode"
 
 	. "snai.pe/boa/syntax"
@@ -46,11 +47,28 @@ type lexerState struct {
 	blankLine bool
 }
 
-func newLexer(ctx context.Context, input io.Reader) *Lexer {
-	state := lexerState{
-		blankLine: true,
+type pooledLexer struct {
+	lx    Lexer
+	state lexerState
+	done  func()
+}
+
+var lexerPool sync.Pool
+
+func init() {
+	lexerPool.New = func() any {
+		p := new(pooledLexer)
+		p.done = func() { lexerPool.Put(p) }
+		return p
 	}
-	return NewLexer(ctx, input, state.lex)
+}
+
+func newLexer(ctx context.Context, input io.Reader) *Lexer {
+	p := lexerPool.Get().(*pooledLexer)
+	p.state = lexerState{blankLine: true}
+	p.lx.Done = p.done
+	p.lx.Reinit(ctx, input, p.state.lex)
+	return &p.lx
 }
 
 func (state *lexerState) lex(l *Lexer) StateFunc {

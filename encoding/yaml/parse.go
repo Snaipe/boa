@@ -53,11 +53,15 @@ type parser struct {
 }
 
 func newParser(ctx context.Context, in io.Reader, schema *Schema) Parser {
-	lexer, lexerState := newLexer(ctx, in)
-	var done func()
-	lexerState.resolverMachines, lexerState.resolverTags, done = schema.newResolverMachines()
+	lexer, lexerState, lexDone := newLexer(ctx, in)
+	machines, tags, resolverDone := schema.newResolverMachines()
+	lexerState.resolverMachines = machines
+	lexerState.resolverTags = tags
 	lexerState.resolversByFirstByte = schema.resolversByFirstByte[:]
-	lexer.Done = done
+	lexer.Done = func() {
+		resolverDone()
+		lexDone()
+	}
 	return &parser{
 		lexer:            lexer,
 		lexerState:       lexerState,

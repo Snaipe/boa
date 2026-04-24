@@ -9,6 +9,7 @@ import (
 	"context"
 	"io"
 	"strings"
+	"sync"
 
 	. "snai.pe/boa/syntax"
 )
@@ -119,8 +120,8 @@ type lexerState struct {
 	// Resolver machines for lex-time tag resolution. Pre-allocated by the
 	// parser from the schema's resolvers; stepped in lockstep on each plain
 	// scalar after chompScalar produces the final string.
-	resolverMachines []*RegexpMachine
-	resolverTags     []string
+	resolverMachines     []*RegexpMachine
+	resolverTags         []string
 	resolversByFirstByte [][]int
 
 	// Scalar lexing context: parameters stored by lexScalar, consumed by
@@ -142,14 +143,32 @@ func (state *lexerState) startScalar(l *Lexer) StateFunc {
 	return state.lexScalar(TokenScalar, mlfold|mlstrip, state.indent)
 }
 
-func newLexer(ctx context.Context, input io.Reader) (*Lexer, *lexerState) {
-	state := lexerState{
+type pooledLexer struct {
+	lx    Lexer
+	state lexerState
+	done  func()
+}
+
+var lexerPool sync.Pool
+
+func init() {
+	lexerPool.New = func() any {
+		p := new(pooledLexer)
+		p.done = func() { lexerPool.Put(p) }
+		return p
+	}
+}
+
+func newLexer(ctx context.Context, input io.Reader) (*Lexer, *lexerState, func()) {
+	p := lexerPool.Get().(*pooledLexer)
+	p.state = lexerState{
 		newline: true,
 		indent:  -1, // document level: no parent indentation context
 	}
-	state.lexFn = state.lex
-	state.lexScalarFn = state.lexScalarBody
-	return NewLexer(ctx, input, state.lex), &state
+	p.state.lexFn = p.state.lex
+	p.state.lexScalarFn = p.state.lexScalarBody
+	p.lx.Reinit(ctx, input, p.state.lex)
+	return &p.lx, &p.state, p.done
 }
 
 // Flow-collection indicators (,[]{}|>) terminate a tag suffix. Verbatim tags

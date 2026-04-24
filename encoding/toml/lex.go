@@ -63,27 +63,35 @@ type ndkRunner struct {
 	snap ndkSnap
 }
 
-var ndkRunnerPool = sync.Pool{
-	New: func() any {
+type pooledLexer struct {
+	lx      Lexer
+	state   lexerState
+	runners []ndkRunner
+	done    func()
+}
+
+var lexerPool sync.Pool
+
+func init() {
+	lexerPool.New = func() any {
+		p := new(pooledLexer)
 		machines := ndkMachines()
-		runners := make([]ndkRunner, len(machines))
+		p.runners = make([]ndkRunner, len(machines))
 		for i := range machines {
-			runners[i].rm = machines[i].re.NewMachine()
-			runners[i].emit = machines[i].emit
+			p.runners[i].rm = machines[i].re.NewMachine()
+			p.runners[i].emit = machines[i].emit
 		}
-		return &runners
-	},
+		p.done = func() { lexerPool.Put(p) }
+		return p
+	}
 }
 
 func newLexer(ctx context.Context, input io.Reader) *Lexer {
-	runnersPtr := ndkRunnerPool.Get().(*[]ndkRunner)
-	state := lexerState{
-		expectKey:  true,
-		ndkRunners: *runnersPtr,
-	}
-	l := NewLexer(ctx, input, state.lex)
-	l.Done = func() { ndkRunnerPool.Put(runnersPtr) }
-	return l
+	p := lexerPool.Get().(*pooledLexer)
+	p.state = lexerState{expectKey: true, ndkRunners: p.runners}
+	p.lx.Done = p.done
+	p.lx.Reinit(ctx, input, p.state.lex)
+	return &p.lx
 }
 
 func (state *lexerState) acceptNewline(l *Lexer) error {
