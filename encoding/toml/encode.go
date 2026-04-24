@@ -34,6 +34,7 @@ func NewEncoder(out io.Writer) encoding.Encoder {
 	}
 	encoder.marshaler.Writer = out
 	encoder.marshaler.Self = &encoder.marshaler
+	encoder.marshaler.StructTagParser = encutil.StructTagParser{Tag: "toml"}
 
 	// Defaults
 	encoder.marshaler.Indent = "  "
@@ -69,7 +70,7 @@ func (encoder *encoder) Option(opts ...interface{}) encoding.Encoder {
 
 type marshaler struct {
 	encutil.MarshalerBase
-	structTagParser
+	encutil.StructTagParser
 
 	// state
 	first           bool
@@ -632,20 +633,6 @@ var (
 	_ reflectutil.InfMarshaler          = (*marshaler)(nil)
 )
 
-type structTagParser struct{}
-
-func (structTagParser) ParseStructTag(tag reflect.StructTag) (reflectutil.FieldOpts, bool) {
-	var opts reflectutil.FieldOpts
-	if tomltag, ok := reflectutil.LookupTag(tag, "toml", true); ok {
-		if tomltag.Value == "-" {
-			opts.Ignore = true
-		} else {
-			opts.Name = tomltag.Value
-		}
-		return opts, true
-	}
-	return opts, false
-}
 
 func Marshal(v interface{}) ([]byte, error) {
 	var out bytes.Buffer

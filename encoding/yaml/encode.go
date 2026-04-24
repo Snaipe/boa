@@ -42,6 +42,7 @@ func NewEncoder(out io.Writer) encoding.Encoder {
 	enc.marshaler.tracker = &newlineTracker{Writer: out}
 	enc.marshaler.Writer = enc.marshaler.tracker
 	enc.marshaler.Self = &enc.marshaler
+	enc.marshaler.StructTagParser = encutil.StructTagParser{Tag: "yaml"}
 	enc.marshaler.Indent = "  "
 	enc.marshaler.NamingConvention = encoding.KebabCase
 	return &enc
@@ -67,7 +68,7 @@ func (enc *encoder) Option(opts ...interface{}) encoding.Encoder {
 
 type marshaler struct {
 	encutil.MarshalerBase
-	structTagParser
+	encutil.StructTagParser
 
 	tracker   *newlineTracker
 	depth     int

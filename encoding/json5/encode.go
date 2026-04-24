@@ -30,6 +30,7 @@ func NewEncoder(out io.Writer) encoding.Encoder {
 	var encoder encoder
 	encoder.marshaler.Writer = out
 	encoder.marshaler.Self = &encoder.marshaler
+	encoder.marshaler.StructTagParser = encutil.StructTagParser{Tag: "json"}
 
 	// Defaults
 	encoder.marshaler.Indent = "  "
@@ -57,7 +58,7 @@ func (encoder *encoder) Option(opts ...interface{}) encoding.Encoder {
 
 type marshaler struct {
 	encutil.MarshalerBase
-	structTagParser
+	encutil.StructTagParser
 
 	// state
 	depth   int
@@ -424,20 +425,6 @@ func (m *marshaler) MarshalNodePost(node syntax.Value) error {
 	return nil
 }
 
-type structTagParser struct{}
-
-func (structTagParser) ParseStructTag(tag reflect.StructTag) (reflectutil.FieldOpts, bool) {
-	var opts reflectutil.FieldOpts
-	if jsontag, ok := reflectutil.LookupTag(tag, "json", true); ok {
-		if opts.Name == "-" {
-			opts.Ignore = true
-		} else {
-			opts.Name = jsontag.Value
-		}
-		return opts, true
-	}
-	return opts, false
-}
 
 var (
 	_ reflectutil.Marshaler             = (*marshaler)(nil)

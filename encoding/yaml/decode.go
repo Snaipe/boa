@@ -19,24 +19,9 @@ import (
 	"snai.pe/boa/internal/reflectutil"
 )
 
-type structTagParser struct{}
-
-func (structTagParser) ParseStructTag(tag reflect.StructTag) (reflectutil.FieldOpts, bool) {
-	var opts reflectutil.FieldOpts
-	if yamltag, ok := reflectutil.LookupTag(tag, "yaml", true); ok {
-		if yamltag.Value == "-" {
-			opts.Ignore = true
-		} else {
-			opts.Name = yamltag.Value
-		}
-		return opts, true
-	}
-	return opts, false
-}
-
 type unmarshaler struct {
 	encutil.UnmarshalerBase
-	structTagParser
+	encutil.StructTagParser
 	schema *Schema
 }
 
@@ -173,6 +158,7 @@ func NewDecoder(rd io.Reader) encoding.Decoder {
 	var decoder decoder
 	decoder.in = rd
 	decoder.unmarshaler.Self = &decoder.unmarshaler
+	decoder.unmarshaler.StructTagParser = encutil.StructTagParser{Tag: "yaml"}
 	decoder.unmarshaler.Extensions = []string{".yaml", ".yml"}
 
 	// Defaults

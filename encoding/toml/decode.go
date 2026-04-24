@@ -21,7 +21,7 @@ import (
 
 type unmarshaler struct {
 	encutil.UnmarshalerBase
-	structTagParser
+	encutil.StructTagParser
 }
 
 func (unmarshaler) UnmarshalValue(val reflect.Value, node syntax.Value) (bool, error) {
@@ -90,6 +90,7 @@ func NewDecoder(rd io.Reader) encoding.Decoder {
 	decoder.in = rd
 	decoder.unmarshaler.NewParser = newParser
 	decoder.unmarshaler.Self = &decoder.unmarshaler
+	decoder.unmarshaler.StructTagParser = encutil.StructTagParser{Tag: "toml"}
 	decoder.unmarshaler.Extensions = []string{".toml"}
 
 	// Defaults
